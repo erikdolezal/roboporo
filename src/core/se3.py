@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import ArrayLike
 
-from src.core import SO3
+from src.core.so3 import SO3
 
 
 class SE3:
@@ -58,6 +58,13 @@ class SE3:
         h[:3, :3] = self.rotation.rot
         h[:3, 3] = self.translation
         return h
+    
+    def from_homogeneous(self, H):
+
+        ret = SE3()
+        ret.translation = H[:3, 3]
+        ret.rotation.rot = H[:3, :3]
+        return ret
 
     def __eq__(self, other: SE3) -> bool:
         """Returns true if two transformations are almost equal."""

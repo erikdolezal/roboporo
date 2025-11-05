@@ -52,13 +52,14 @@ def find_hoop_homography(images: ArrayLike, hoop_positions: List[dict]) -> np.nd
                 if radius > 10:
                     center = (int(x), int(y))
                     src_points.append(center)
-                    #cv2.circle(img, center, int(radius), (0, 255, 0), 2)
-                    #cv2.circle(img, center, 2, (0, 0, 255), 3)            
-                    #cv2.imshow("Detected Circles", img)
-                    #cv2.waitKey(0)
-                    #cv2.destroyAllWindows()
+                    cv2.circle(img, center, int(radius), (0, 255, 0), 2)
+                    cv2.circle(img, center, 2, (0, 0, 255), 3)            
                     break     
-    
+        img = cv2.resize(img, None, fx=0.5, fy=0.5)
+        cv2.imshow("Detected Circles", img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+    print(np.array([src_points]), np.array([dest_points]))
     homography, mask = cv2.findHomography(np.array(src_points), np.array(dest_points))
     return homography
 

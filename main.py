@@ -10,7 +10,11 @@ def main(args):
         robot = RobotInterface(CRS93(tty_dev=tty_dev))
     if not args.local:
         robot.initialize(home = args.home)
+        print(robot.get_actual_pose())
+        #robot.move_absolute(0,92,0,0.4,0.1,0.4)
         robot.calibrate_camera()
+    robot.soft_home()
+    robot.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Initialize CRS Robot")

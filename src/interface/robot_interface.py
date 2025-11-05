@@ -32,9 +32,9 @@ class RobotInterface:
         ik_sols = self.robot.ik(target_pose.homogeneous())
         if len(ik_sols) > 0:
             closest_solution = min(ik_sols, key=lambda q: np.linalg.norm(q - q0))
+            print("target_pose:\n", target_pose)
             self.robot.move_to_q(closest_solution)
             self.robot.wait_for_motion_stop()
-            print("target_pose:\n", target_pose)
             print("actual pose:\n", self.get_actual_pose())
         else:
             print("tos prestrelil miso")
@@ -58,22 +58,25 @@ class RobotInterface:
 
     def calibrate_camera(self):
         target_positions = np.array([
-            [0.4, 0.0, 0.2],
-            [0.4, 0.2, 0.2],
-            [0.4, -0.2, 0.2],
-            [0.3, 0.0, 0.2],
-            [0.3, 0.2, 0.2],
-            [0.3, -0.2, 0.2],
+            [0.35, 0.0, 0.3],
+            [0.35, 0.1, 0.3],
+            [0.35, -0.1, 0.3],
+            [0.38, 0.0, 0.3],
+            [0.38, 0.1, 0.3],
+            [0.38, -0.1, 0.3],
+            [0.4, 0.0, 0.3],
+            [0.4, 0.1, 0.3],
+            [0.4, -0.1, 0.3],
+
         ])
         images = []
         real_positions = []
         for pos in target_positions:
-            self.move_absolute(0, 0, 0, pos[0], pos[1], pos[2])
+            self.move_absolute(0., 180., 0., pos[0], pos[1], pos[2])
             img = self.robot.grab_image()
             images.append(img)
             actual_pose = self.get_actual_pose()
             real_positions.append({
-                "RPY": actual_pose.rotation.to_euler_angles("xyz").tolist(),
                 "translation_vector": actual_pose.translation.tolist()
             })
 

@@ -29,7 +29,9 @@ class RobotInterface:
         target_pose = SE3(translation = np.array([x, y, z]), 
                             rotation=SO3().from_euler_angles(np.deg2rad(np.array([phi, theta, psi])), "xyz"))
         q0 = self.robot.get_q()
-        ik_sols = self.robot.ik(target_pose.homogeneous())
+        ik_sols = np.asarray(self.robot.ik(target_pose.homogeneous()))
+        ik_sols_mask = np.all(ik_sols < self.robot.q_max, axis=1) & np.all(ik_sols > self.robot.q_min, axis=1) 
+        ik_sols = ik_sols[ik_sols_mask]
         if len(ik_sols) > 0:
             closest_solution = min(ik_sols, key=lambda q: np.linalg.norm(q - q0))
             print("target_pose:\n", target_pose)

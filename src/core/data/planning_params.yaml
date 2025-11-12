@@ -1,0 +1,15 @@
+joint_limits:
+  - [-3.14, 3.14] # Joint 1 limits in radians
+  - [-1.57, 1.57] # Joint 2 limits in radians
+  - [-2.0, 2.0] # Joint 3 limits in radians
+  - [-1.0, 1.0] # Joint 4 limits in radians
+  - [-3.14, 3.14] # Joint 5 limits in radians
+  - [-1.57, 1.57] # Joint 6 limits in radians
+
+rrt:
+  max_iterations: 1000
+  neighbor_radius: 0.5
+  rrt_star_gamma: 1.5
+  goal_tolerance: 0.1
+  step_size: 0.2
+  edge_check_steps: 0.1

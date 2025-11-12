@@ -1,6 +1,8 @@
 import numpy as np
-from src.core.se3 import SE3, SO3
+from src.core.se3 import SE3
+from src.core.so3 import SO3
 from src.interface.robot_interface import RobotInterface
+from src.core.obstacles import Obstacle
 import yaml
 
 
@@ -13,11 +15,8 @@ class Planning:
 
         self.obstacles = obstacles if obstacles is not None else []
         
-        # Initialize RRT* planner
-        self.planner = RRTStarPlanner(robot_interface, self.planning_params)
-        if self.obstacles:
-            self.planner.set_obstacles(self.obstacles)
-
+        self.planner = None
+        
     def load_planning_params(self, planning_params_path: str) -> dict:
         """Load planning parameters from a YAML file.
 
@@ -29,6 +28,32 @@ class Planning:
         with open(planning_params_path, 'r') as file:
             planning_params = yaml.safe_load(file)
         return planning_params
+    
+    def choose_planner(self, planner_type: str):
+        """Choose the planner type.
+
+        Args:
+            planner_type (str): The type of planner to use (e.g., 'RRTStar').
+        """
+        # For now, only RRTStar is implemented
+        if planner_type == 'RRTStar':
+            self.planner = RRTStarPlanner(self.robot_interface, self.planning_params)
+            self.planner.set_obstacles(self.obstacles)
+        elif planner_type == 'PathFollowing':
+            # Placeholder for PathFollowing planner
+            pass
+        else:
+            raise ValueError(f"Planner type '{planner_type}' not recognized.")
+
+
+class PathFollowingPlanner:
+    def __init__(self, robot_interface: RobotInterface, planning_params: dict):
+        self.robot_interface = robot_interface
+        self.planning_params = planning_params
+        # Placeholder for PathFollowing planner implementation
+        pass
+
+    # TODO: Implement PathFollowing planner methods
 
 class RRTStarPlanner:
     def __init__(self, robot_interface: RobotInterface, planning_params: dict):
@@ -64,7 +89,7 @@ class RRTStarPlanner:
             return self.get_path()
         
         # RRT* main loop
-        for _ in range(self.planning_params['num_iterations']):
+        for _ in range(self.planning_params['rrt']['max_iterations']):
             # Sample a random configuration
             q_rand = self.sample_random_configuration()
 
@@ -81,13 +106,12 @@ class RRTStarPlanner:
             if not self.collision_free_edge(nearest_node.q, new_node.q):
                 continue
 
-            # RRT* neighbor radius (can be provided or computed)
-            neighbor_radius = self.planning_params.get('neighbor_radius', None)
+            neighbor_radius = self.planning_params.get('rrt', {}).get('neighbor_radius', None)
             if neighbor_radius is None:
                 # default dynamic radius: gamma * (log(n)/n)^(1/d)
                 n = max(1, len(self.tree_nodes))
                 d = float(len(start)) if start is not None else 1.0
-                gamma = float(self.planning_params.get('rrt_star_gamma', 1.5))
+                gamma = float(self.planning_params.get('rrt', {}).get('rrt_star_gamma', 1.5))
                 neighbor_radius = gamma * (np.log(n + 1) / (n + 1)) ** (1.0 / d)
 
             neighbors = self.find_neighbors(new_node.q, neighbor_radius)
@@ -124,7 +148,7 @@ class RRTStarPlanner:
 
             # Goal check: try to connect new_node to goal
             dist_to_goal = np.linalg.norm(new_node.q - goal)
-            if dist_to_goal < self.planning_params.get('goal_tolerance', 1e-3):
+            if dist_to_goal < self.planning_params.get('rrt', {}).get('goal_tolerance', 1e-3):
                 if self.collision_free_edge(new_node.q, goal):
                     goal_cost = new_node.cost + dist_to_goal
                     if goal_cost < best_goal_cost:
@@ -169,7 +193,7 @@ class RRTStarPlanner:
         norm = np.linalg.norm(vec)
         if norm <= 0.0:
             return self.Node(parent=from_node, q=from_node.q.copy(), cost=from_node.cost)
-        step = float(self.planning_params.get('step_size', 0.1))
+        step = float(self.planning_params.get('rrt', {}).get('step_size', 0.1))
         direction = (vec / norm) * min(step, norm)
         new_q = from_node.q + direction
         new_node = self.Node(parent=from_node, q=new_q, cost=from_node.cost + np.linalg.norm(direction))
@@ -220,7 +244,7 @@ class RRTStarPlanner:
         dist = np.linalg.norm(q2 - q1)
         if dist == 0.0:
             return not self.c_space.is_in_c_space(q1)
-        step = float(self.planning_params.get('edge_check_step', self.planning_params.get('step_size', 0.1)))
+        step = float(self.planning_params.get('rrt', {}).get('edge_check_steps', self.planning_params.get('rrt', {}).get('step_size', 0.1)))
         n_samples = max(1, int(np.ceil(dist / step)))
         for i in range(1, n_samples + 1):
             t = i / float(n_samples)
@@ -248,14 +272,6 @@ class RRTStarPlanner:
                 obstacles (List): list of obstacles to set
         """
         self.obstacles = obstacles
-        pass
-    
-    def get_C_space(self):
-        """ Get the configuration space by limiting the robot's joint limits and considering obstacles.
-        Returns:
-            C_space (object): The configuration space object.
-        """
-        pass
     
     def set_number_of_iterations(self, n: int):
         """Set the number of iterations for the planner.
@@ -263,7 +279,7 @@ class RRTStarPlanner:
         Args:
             n (int): The number of iterations.
         """
-        self.planning_params['num_iterations'] = n
+        self.planning_params['rrt']['num_iterations'] = n
         
     def set_step_size(self, step_size: float):
         """Set the step size for the planner.
@@ -271,15 +287,15 @@ class RRTStarPlanner:
         Args:
             step_size (float): The step size.
         """
-        self.planning_params['step_size'] = step_size
-        
+        self.planning_params['rrt']['step_size'] = step_size
+
     def set_goal_tolerance(self, tolerance: float):
         """Set the goal tolerance for the planner.
 
         Args:
             tolerance (float): The goal tolerance.
         """
-        self.planning_params['goal_tolerance'] = tolerance
+        self.planning_params['rrt']['goal_tolerance'] = tolerance
         
     
     class Node:
@@ -342,5 +358,7 @@ class RRTStarPlanner:
             Returns:
                 bool: True if in collision with the obstacle, False otherwise.
             """
-            # Implement specific collision checking logic here
+            
+            # TODO: Implement collision checking logic here
+            
             pass

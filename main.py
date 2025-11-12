@@ -1,7 +1,7 @@
 import argparse
 from ctu_crs import CRS97, CRS93
 from src.interface.robot_interface import RobotInterface
-
+from src.core.obstacles import Obstacle
 def main(args):
     tty_dev = None if args.local else "/dev/mars"
     if args.robot == "CRS97":
@@ -9,11 +9,15 @@ def main(args):
     elif args.robot == "CRS93":
         robot = RobotInterface(CRS93(tty_dev=tty_dev))
     if not args.local:
-        robot.initialize(home = (args.home or args.calibrate_camera))
+        robot.initialize(home = (args.home))
+        robot.soft_home()
         if args.calibrate_camera:
             robot.calibrate_camera()
-            robot.soft_home()
-            robot.close()
+        else:
+            robot.get_maze_position()
+
+        #robot.soft_home()
+        #robot.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Initialize CRS Robot")

@@ -5,7 +5,7 @@ from src.core.so3 import SO3
 from typing import List
 
 class Obstacle:
-    def __init__(self, type: str, path: str, transform: SO3, radius: float = 0.005, start: float = 0.0, end: float = 10.0) -> None:
+    def __init__(self, type: str, path: str, transform: SE3, radius: float = 0.005, start: float = 0.0, end: float = 10.0) -> None:
         self.type = type
         self.path = path
         self.transform = transform

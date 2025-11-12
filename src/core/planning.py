@@ -60,8 +60,8 @@ class PathFollowingPlanner:
         """Get list of joint configurations for the waypoints.
         
         This function ensures that the robot follows the path without changing
-        configuration (solution branch) to prevent the end-effector loop from
-        crossing the path.
+        configuration (solution branch). Since the end-effector is a loop, only
+        the position and tangent direction matter, not the rotation around the tangent.
 
         Returns:
             np.ndarray: Array of joint configurations for each waypoint.
@@ -75,12 +75,38 @@ class PathFollowingPlanner:
         # Get all IK solutions for each waypoint
         all_ik_solutions = []
         for waypoint in self.waypoints:
-            ik_sols = np.asarray(self.ik_func(waypoint))
-            ik_sols_mask = np.all(ik_sols < self.robot_interface.q_max, axis=1) & np.all(ik_sols > self.robot_interface.q_min, axis=1) 
-            ik_sols = ik_sols[ik_sols_mask]
-            if len(ik_sols) == 0:
+            # Generate multiple orientations around the tangent axis
+            ik_sols_all = []
+            
+            # Try different rotations around the x-axis (tangent direction)
+            num_rotations = 8  # Sample 8 different orientations around the tangent
+            for angle in np.linspace(0, 2*np.pi, num_rotations, endpoint=False):
+                # Rotate around x-axis (tangent direction)
+                rot_around_tangent = SO3.from_axis_angle(np.array([1, 0, 0]), angle)
+                modified_waypoint = SE3(
+                    translation=waypoint.translation,
+                    rotation=waypoint.rotation * rot_around_tangent
+                )
+                
+                ik_sols = np.asarray(self.ik_func(modified_waypoint))
+                ik_sols_mask = np.all(ik_sols < self.robot_interface.q_max, axis=1) & np.all(ik_sols > self.robot_interface.q_min, axis=1) 
+                ik_sols = ik_sols[ik_sols_mask]
+                if len(ik_sols) > 0:
+                    ik_sols_all.append(ik_sols)
+            
+            if len(ik_sols_all) == 0:
                 raise ValueError(f"No IK solution found for waypoint at {waypoint.translation}.")
-            all_ik_solutions.append(ik_sols)
+            
+            # Combine all solutions and filter by joint limits
+            ik_sols_combined = np.vstack(ik_sols_all)
+            ik_sols_mask = np.all(ik_sols_combined < self.robot_interface.q_max, axis=1) & \
+                           np.all(ik_sols_combined > self.robot_interface.q_min, axis=1)
+            ik_sols_filtered = ik_sols_combined[ik_sols_mask]
+            
+            if len(ik_sols_filtered) == 0:
+                raise ValueError(f"No valid IK solution within joint limits for waypoint at {waypoint.translation}.")
+            
+            all_ik_solutions.append(ik_sols_filtered)
         
         # Find the configuration that minimizes total joint displacement
         best_q_list = None
@@ -88,7 +114,7 @@ class PathFollowingPlanner:
         
         # Try each IK solution for the first waypoint as a starting configuration
         for start_idx, start_q in enumerate(all_ik_solutions[0]):
-            print(f"planning for start_idx {start_idx}, q: {start_q}")
+            print(f"planning for start_idx {start_idx}/{len(all_ik_solutions[0])}, q: {start_q}")
             q_list = [start_q]
             total_cost = 0.0
             valid_path = True
@@ -105,11 +131,9 @@ class PathFollowingPlanner:
                     # Calculate distance in configuration space
                     dist = np.linalg.norm(candidate_q - prev_q)
                     
-                    # Check if this configuration is within joint limits
-                    if self._is_within_limits(candidate_q):
-                        if dist < min_dist:
-                            min_dist = dist
-                            best_q = candidate_q
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_q = candidate_q
                 
                 if best_q is None:
                     # No valid configuration found for this waypoint
@@ -123,10 +147,12 @@ class PathFollowingPlanner:
             if valid_path and total_cost < best_total_cost:
                 best_total_cost = total_cost
                 best_q_list = q_list
+                print(f"  -> Found better path with cost: {best_total_cost:.4f}")
         
         if best_q_list is None:
             raise ValueError("No consistent configuration found for all waypoints.")
         
+        print(f"Best path found with total cost: {best_total_cost:.4f}")
         return np.array(best_q_list)
 
     def _is_within_limits(self, q: np.ndarray) -> bool:

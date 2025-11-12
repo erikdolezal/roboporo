@@ -88,6 +88,7 @@ class PathFollowingPlanner:
         
         # Try each IK solution for the first waypoint as a starting configuration
         for start_idx, start_q in enumerate(all_ik_solutions[0]):
+            print(f"planning for start_idx {start_idx}, q: {start_q}")
             q_list = [start_q]
             total_cost = 0.0
             valid_path = True

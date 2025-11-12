@@ -45,5 +45,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Calibrate camera after initialization",
     )
+
+    parser.add_argument(
+        "--maze",
+        type=str,
+        help="Maze configuration"
+    )
     args = parser.parse_args()
     main(args)

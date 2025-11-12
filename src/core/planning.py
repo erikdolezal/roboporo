@@ -47,13 +47,13 @@ class Planning:
 
 
 class PathFollowingPlanner:
-    def __init__(self, robot_interface: RobotInterface, planning_params: dict, obstacle: Obstacle, ik_func=None):
+    def __init__(self, robot_interface: RobotInterface, planning_params: dict, obstacle: Obstacle, ik_func):
         self.robot_interface = robot_interface
         self.planning_params = planning_params
         self.waypoints = obstacle.waypoints
         self.q_max = robot_interface.q_max
         self.q_min = robot_interface.q_min
-        self.ik_func = ik_func if ik_func is not None else robot_interface.ik
+        self.ik_func = ik_func
 
 
     def get_list_of_best_q(self) -> np.ndarray:
@@ -75,7 +75,7 @@ class PathFollowingPlanner:
         # Get all IK solutions for each waypoint
         all_ik_solutions = []
         for waypoint in self.waypoints:
-            ik_sols = np.asarray(self.ik_func(waypoint.homogeneous()))
+            ik_sols = np.asarray(self.ik_func(waypoint))
             ik_sols_mask = np.all(ik_sols < self.robot_interface.q_max, axis=1) & np.all(ik_sols > self.robot_interface.q_min, axis=1) 
             ik_sols = ik_sols[ik_sols_mask]
             if len(ik_sols) == 0:

@@ -45,6 +45,11 @@ class Obstacle:
             raise ValueError("Offset must be a 3D vector.")
         self.box_offset = new_offset
         self.hide_in_box(offset=self.box_offset)
+        
+    def sample_centerline_points(self, num_points: int) -> np.ndarray:
+        if self.line_final is None:
+            raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
+        # TODO: Implement point sampling along the centerline with rotational data.
 
     # ----------------------Inner-Helper-Functions-----------------------------------------------
 

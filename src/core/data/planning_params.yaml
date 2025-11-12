@@ -6,6 +6,8 @@ joint_limits:
   - [-3.14, 3.14] # Joint 5 limits in radians
   - [-1.57, 1.57] # Joint 6 limits in radians
 
+# RRT* parameters
+
 rrt:
   max_iterations: 1000
   neighbor_radius: 0.5

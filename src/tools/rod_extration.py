@@ -351,3 +351,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+# Use:
+# python src/tools/rod_extration.py src/tools/models/E.step --voxel 0.5 --show
+

@@ -3,9 +3,10 @@ import numpy as np
 from src.core.se3 import SE3
 from src.core.so3 import SO3
 from typing import List
+import matplotlib.pyplot as plt
 
 class Obstacle:
-    def __init__(self, type: str, path: str, transform: SE3, radius: float = 0.005, start: float = 0.0, end: float = 10.0) -> None:
+    def __init__(self, type: str, path: str, transform: SE3, radius: float = 0.005, start: float = 0.04, end: float = 10.0) -> None:
         self.type = type
         self.path = path
         self.transform = transform
@@ -23,6 +24,14 @@ class Obstacle:
         self.open_centerline()
         self.crop_centerline_z()
         self.tranform_centerline()
+        fig = plt.figure(figsize=(10,10), layout="tight")
+        ax = fig.add_subplot(111, projection='3d')
+        ax.plot(*self.line_final.T)
+        ax.set_aspect('equal')
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_zlabel("z")
+        plt.show()
         self.sample_centerline_points(num_points=20)
         self.hide_in_box(offset=self.box_offset)        
             
@@ -95,28 +104,30 @@ class Obstacle:
             tangent = tangent / np.linalg.norm(tangent)
 
             # Create rotation matrix with tangent as x-axis
-            x_axis = tangent
+            z_axis = tangent
 
             # Choose arbitrary perpendicular vector for y-axis
-            if abs(x_axis[2]) < 0.9:
-                y_axis = np.cross(x_axis, [0, 0, 1])
+            if abs(z_axis[2]) < 0.9:
+                x_axis = np.cross(z_axis, [0, 1, 0])
             else:
-                y_axis = np.cross(x_axis, [1, 0, 0])
-            y_axis = y_axis / np.linalg.norm(y_axis)
+                x_axis = np.cross(z_axis, [1, 0, 0])
+            x_axis = x_axis / np.linalg.norm(x_axis)
 
             # Complete the orthonormal basis
-            z_axis = np.cross(x_axis, y_axis)
+            y_axis = np.cross(x_axis, z_axis)
 
             # Create rotation matrix
             rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
+            rotation_matrix *= np.linalg.det(rotation_matrix)
+            #print(f"rot: {rotation_matrix}, det {np.linalg.det(rotation_matrix)}")
             
             # Create SE3 transformation
             se3 = SE3(translation=position, rotation=SO3(rotation_matrix))
             se3_list.append(se3)
 
         first_se3 = se3_list[0]
-        first_tangent = first_se3.rotation.rot[:, 0]  # x-axis is the tangent
-        start_position = first_se3.translation - 0.05 * first_tangent  # 5 cm = 0.05 m
+        first_tangent = first_se3.rotation.rot[:, 2]  # x-axis is the tangent
+        start_position = first_se3.translation + 0.05 * first_tangent  # 5 cm = 0.05 m
         start_se3 = SE3(translation=start_position, rotation=first_se3.rotation)
         se3_list.insert(0, start_se3)
 

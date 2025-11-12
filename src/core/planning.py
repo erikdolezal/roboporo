@@ -47,10 +47,10 @@ class Planning:
 
 
 class PathFollowingPlanner:
-    def __init__(self, robot_interface: RobotInterface, planning_params: dict, obstacle: Obstacle, ik_func):
+    def __init__(self, robot_interface: RobotInterface, waypoints: Obstacle, ik_func, planning_params: dict = {}):
         self.robot_interface = robot_interface
         self.planning_params = planning_params
-        self.waypoints = obstacle.waypoints
+        self.waypoints = waypoints
         self.q_max = robot_interface.q_max
         self.q_min = robot_interface.q_min
         self.ik_func = ik_func
@@ -81,16 +81,20 @@ class PathFollowingPlanner:
             # Try different rotations around the x-axis (tangent direction)
             num_rotations = 8  # Sample 8 different orientations around the tangent
             for angle in np.linspace(0, 2*np.pi, num_rotations, endpoint=False):
+                print(angle)
                 # Rotate around x-axis (tangent direction)
-                rot_around_tangent = SO3.from_axis_angle(np.array([1, 0, 0]), angle)
+                rot_around_tangent = SO3.from_angle_axis(angle, np.array([0, 0, 1]))
                 modified_waypoint = SE3(
                     translation=waypoint.translation,
                     rotation=waypoint.rotation * rot_around_tangent
                 )
+
+                print(modified_waypoint)
                 
                 ik_sols = np.asarray(self.ik_func(modified_waypoint))
-                ik_sols_mask = np.all(ik_sols < self.robot_interface.q_max, axis=1) & np.all(ik_sols > self.robot_interface.q_min, axis=1) 
-                ik_sols = ik_sols[ik_sols_mask]
+                if len(ik_sols) > 0:
+                    ik_sols_mask = np.all(ik_sols < self.robot_interface.q_max, axis=1) & np.all(ik_sols > self.robot_interface.q_min, axis=1) 
+                    ik_sols = ik_sols[ik_sols_mask]
                 if len(ik_sols) > 0:
                     ik_sols_all.append(ik_sols)
             
@@ -99,8 +103,7 @@ class PathFollowingPlanner:
             
             # Combine all solutions and filter by joint limits
             ik_sols_combined = np.vstack(ik_sols_all)
-            ik_sols_mask = np.all(ik_sols_combined < self.robot_interface.q_max, axis=1) & \
-                           np.all(ik_sols_combined > self.robot_interface.q_min, axis=1)
+            ik_sols_mask = np.all(ik_sols_combined < self.robot_interface.q_max, axis=1) & np.all(ik_sols_combined > self.robot_interface.q_min, axis=1)
             ik_sols_filtered = ik_sols_combined[ik_sols_mask]
             
             if len(ik_sols_filtered) == 0:
@@ -114,7 +117,7 @@ class PathFollowingPlanner:
         
         # Try each IK solution for the first waypoint as a starting configuration
         for start_idx, start_q in enumerate(all_ik_solutions[0]):
-            print(f"planning for start_idx {start_idx}/{len(all_ik_solutions[0])}, q: {start_q}")
+            #print(f"planning for start_idx {start_idx}/{len(all_ik_solutions[0])}, q: {start_q}")
             q_list = [start_q]
             total_cost = 0.0
             valid_path = True
@@ -128,6 +131,9 @@ class PathFollowingPlanner:
                 best_q = None
                 
                 for candidate_q in all_ik_solutions[i]:
+
+                    if SE3().from_homogeneous(self.robot_interface.fk(candidate_q)).translation[2] < 0.06:
+                        continue
                     # Calculate distance in configuration space
                     dist = np.linalg.norm(candidate_q - prev_q)
                     

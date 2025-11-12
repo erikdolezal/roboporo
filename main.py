@@ -2,6 +2,8 @@ import argparse
 from ctu_crs import CRS97, CRS93
 from src.interface.robot_interface import RobotInterface
 from src.core.obstacles import Obstacle
+from src.core.planning import PathFollowingPlanner
+
 def main(args):
     tty_dev = None if args.local else "/dev/mars"
     if args.robot == "CRS97":
@@ -14,7 +16,24 @@ def main(args):
         if args.calibrate_camera:
             robot.calibrate_camera()
         else:
-            robot.get_maze_position()
+            maze_position = robot.get_maze_position()
+            obstacle = Obstacle(args.maze, "src/tools/models", maze_position)
+            obstacle.prep_obstacle()
+            maze_waypoints = obstacle.waypoints
+            planner = PathFollowingPlanner(robot, maze_waypoints, robot.hoop_ik)
+            best_q_list = planner.get_list_of_best_q()
+
+            robot.follow_q_list(best_q_list)
+
+            robot.follow_q_list(best_q_list[::-1])
+            robot.soft_home()
+
+
+
+
+
+
+
 
         #robot.soft_home()
         #robot.close()

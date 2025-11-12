@@ -28,6 +28,13 @@ class RobotInterface:
         else:
             print("tos prestrelil miso")
 
+    def follow_q_list(self, list_q):
+
+        for q in list_q:
+            self.robot.move_to_q(q)
+            self.robot.wait_for_motion_stop()
+
+
     def hoop_ik(self, target_pose):
         flange_pose = target_pose * SE3(
                       rotation = self.robot2hoop.rotation, translation=-self.robot2hoop.translation).inverse()
@@ -99,19 +106,18 @@ class RobotInterface:
         detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
         # Detect the markers
         corners, ids, _ = detector.detectMarkers(gray_img)   
-        print(corners)
         projected_corners = [project_homography(self.camera2robot_H, corner_set[0]) for corner_set in corners]
-        print(projected_corners)
         board_center = np.mean(np.vstack((projected_corners[0], projected_corners[1])), axis=0)
         diag_vec = np.mean(projected_corners[np.where((ids == 2).flatten())[0][0]], axis=0) - np.mean(projected_corners[np.where((ids == 1).flatten())[0][0]], axis=0)
         diag_angle = np.atan2(diag_vec[1], diag_vec[0])
-        maze_pose = SE3(translation=np.array([*board_center, 0.04]), rotation=SO3().from_euler_angles(np.array([0, 0, diag_angle - np.pi/4]), "xyz"))
+        maze_pose = SE3(translation=np.array([*board_center, 0.05]), rotation=SO3().from_euler_angles(np.array([0, 0, diag_angle + np.pi/4]), "xyz"))
             
-        #if ids is not None:
-        #    cv2.aruco.drawDetectedMarkers(img, corners, ids)
-        #    cv2.circle(img, center=project_homography(np.linalg.inv(self.camera2robot_H), board_center[None, :]).astype(int)[0], radius=50, color=(0, 255, 0), thickness=2)
-        #visualize_homography(img, self.camera2robot_H)
-
+        if ids is not None:
+            cv2.aruco.drawDetectedMarkers(img, corners, ids)
+            cv2.circle(img, center=project_homography(np.linalg.inv(self.camera2robot_H), board_center[None, :]).astype(int)[0], radius=50, color=(0, 255, 0), thickness=2)
+        print(maze_pose)
+        visualize_homography(img, self.camera2robot_H)
+    
         return maze_pose
 
         

@@ -31,10 +31,10 @@ def find_hoop_homography(images: ArrayLike, hoop_positions: List[dict]) -> np.nd
 
     images = np.asarray(images)
 
-    dest_points = [x["translation_vector"][:2] for x in hoop_positions]
+    dest_points = np.array([x["translation_vector"][:2] for x in hoop_positions])
     src_points = []
-    
-    for img in images:
+    found_hoop_idx = []
+    for i, img in enumerate(images):
         
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -53,6 +53,7 @@ def find_hoop_homography(images: ArrayLike, hoop_positions: List[dict]) -> np.nd
                 if radius > 10:
                     center = (int(x), int(y))
                     src_points.append(center)
+                    found_hoop_idx.append(i)
                     if VIS:
                         cv2.circle(img, center, int(radius), (0, 255, 0), 2)
                         cv2.circle(img, center, 2, (0, 0, 255), 3)            
@@ -62,11 +63,12 @@ def find_hoop_homography(images: ArrayLike, hoop_positions: List[dict]) -> np.nd
             cv2.imshow("Detected Circles", img)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
+    dest_points = dest_points[found_hoop_idx]
     print(np.array([src_points]), np.array([dest_points]))
     homography, mask = cv2.findHomography(np.array(src_points), np.array(dest_points))
     return homography
 
-def visualize_homography(img, H: np.ndarray):
+def visualize_homography(img, H: np.ndarray, real_positions=None):
     fig, ax = plt.subplots(1, 2, layout='constrained', figsize=(12, 10))
     ax[0].imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
     ax[0].grid()
@@ -101,7 +103,14 @@ def visualize_homography(img, H: np.ndarray):
         warped = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
 
     ax[1].imshow(warped, extent=(xmin, xmax, ymin, ymax), origin='lower')
+    if real_positions is not None:
+        positions = np.array([x["translation_vector"][:2] for x in real_positions])
+        ax[1].plot(*positions.T, '.', c="red")
     ax[1].axis('equal')
     ax[1].grid()
     ax[1].set_title("Transformed Image")
     plt.show()
+
+def project_homography(H, points):
+    projected_points = np.hstack((points, np.ones((points.shape[0], 1)))) @ H.T
+    return projected_points[:, :2] / projected_points[:, 2:3]

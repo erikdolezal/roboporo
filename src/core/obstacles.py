@@ -2,6 +2,7 @@ import os
 import numpy as np
 from src.core.se3 import SE3
 from src.core.so3 import SO3
+from typing import List
 
 class Obstacle:
     def __init__(self, type: str, path: str, transform: SO3, radius: float = 0.005, start: float = 0.0, end: float = 10.0) -> None:
@@ -14,6 +15,7 @@ class Obstacle:
         self.end = end
         self.box = None
         self.box_offset = np.array([0.1, 0.1, 0.1])
+        self.waypoints: List[SE3] = []
         
     def prep_obstacle(self) -> None:
         """Prepare the obstacle by loading, cropping, transforming, and hiding it in a box.
@@ -21,6 +23,7 @@ class Obstacle:
         self.open_centerline()
         self.crop_centerline_z()
         self.tranform_centerline()
+        self.sample_centerline_points(num_points=20)
         self.hide_in_box(offset=self.box_offset)        
             
     def check_point_in_box(self, point: np.ndarray) -> bool:
@@ -46,10 +49,78 @@ class Obstacle:
         self.box_offset = new_offset
         self.hide_in_box(offset=self.box_offset)
         
-    def sample_centerline_points(self, num_points: int) -> np.ndarray:
+    def sample_centerline_points(self, num_points: int = 30) -> list[SE3]:
         if self.line_final is None:
             raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
-        # TODO: Implement point sampling along the centerline with rotational data.
+        
+        if num_points <= 0:
+            raise ValueError("num_points must be positive.")
+        
+        total_points = len(self.line_final)
+        if num_points > total_points:
+            raise ValueError(f"num_points ({num_points}) cannot exceed total points ({total_points}).")
+        
+        # Calculate step size to sample every xth point
+        if num_points == 1:
+            indices = [0]
+        elif num_points == 2:
+            indices = [0, total_points - 1]
+        else:
+            step = (total_points - 1) / (num_points - 1)
+            indices = [int(round(i * step)) for i in range(num_points)]
+            # Ensure first and last indices are exact
+            indices[0] = 0
+            indices[-1] = total_points - 1
+        
+        # Sample points
+        sampled_points = self.line_final[indices]
+        
+        # Create SE3 transformations with tangent directions
+        se3_list = []
+        for i, idx in enumerate(indices):
+            position = sampled_points[i]
+            
+            # Calculate tangent direction
+            if idx == 0:
+                # First point: use direction to next point
+                tangent = self.line_final[idx + 1] - self.line_final[idx]
+            elif idx == total_points - 1:
+                # Last point: use direction from previous point
+                tangent = self.line_final[idx] - self.line_final[idx - 1]
+            else:
+                # Middle points: use central difference
+                tangent = self.line_final[idx + 1] - self.line_final[idx - 1]
+            
+            # Normalize tangent
+            tangent = tangent / np.linalg.norm(tangent)
+
+            # Create rotation matrix with tangent as x-axis
+            x_axis = tangent
+
+            # Choose arbitrary perpendicular vector for y-axis
+            if abs(x_axis[2]) < 0.9:
+                y_axis = np.cross(x_axis, [0, 0, 1])
+            else:
+                y_axis = np.cross(x_axis, [1, 0, 0])
+            y_axis = y_axis / np.linalg.norm(y_axis)
+
+            # Complete the orthonormal basis
+            z_axis = np.cross(x_axis, y_axis)
+
+            # Create rotation matrix
+            rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
+            
+            # Create SE3 transformation
+            se3 = SE3(translation=position, rotation=SO3(rotation_matrix))
+            se3_list.append(se3)
+
+        first_se3 = se3_list[0]
+        first_tangent = first_se3.rotation.rot[:, 0]  # x-axis is the tangent
+        start_position = first_se3.translation - 0.05 * first_tangent  # 5 cm = 0.05 m
+        start_se3 = SE3(translation=start_position, rotation=first_se3.rotation)
+        se3_list.insert(0, start_se3)
+
+        self.waypoints = se3_list
 
     # ----------------------Inner-Helper-Functions-----------------------------------------------
 
@@ -95,6 +166,6 @@ class Obstacle:
         min_coords = np.min(self.line_final, axis=0) - offset
         max_coords = np.max(self.line_final, axis=0) + offset
         self.box = (min_coords, max_coords)
-       
+
 
 

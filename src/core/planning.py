@@ -47,13 +47,101 @@ class Planning:
 
 
 class PathFollowingPlanner:
-    def __init__(self, robot_interface: RobotInterface, planning_params: dict):
+    def __init__(self, robot_interface: RobotInterface, planning_params: dict, obstacle: Obstacle, ik_func):
         self.robot_interface = robot_interface
         self.planning_params = planning_params
-        # Placeholder for PathFollowing planner implementation
-        pass
+        self.waypoints = obstacle.waypoints
+        self.q_max = robot_interface.q_max
+        self.q_min = robot_interface.q_min
+        self.ik_func = ik_func
 
-    # TODO: Implement PathFollowing planner methods
+
+    def get_list_of_best_q(self) -> np.ndarray:
+        """Get list of joint configurations for the waypoints.
+        
+        This function ensures that the robot follows the path without changing
+        configuration (solution branch) to prevent the end-effector loop from
+        crossing the path.
+
+        Returns:
+            np.ndarray: Array of joint configurations for each waypoint.
+        
+        Raises:
+            ValueError: If no consistent IK solution is found for all waypoints.
+        """
+        if not self.waypoints:
+            raise ValueError("No waypoints available.")
+        
+        # Get all IK solutions for each waypoint
+        all_ik_solutions = []
+        for waypoint in self.waypoints:
+            ik_sols = np.asarray(self.ik_func(waypoint))
+            ik_sols_mask = np.all(ik_sols < self.robot_interface.q_max, axis=1) & np.all(ik_sols > self.robot_interface.q_min, axis=1) 
+            ik_sols = ik_sols[ik_sols_mask]
+            if len(ik_sols) == 0:
+                raise ValueError(f"No IK solution found for waypoint at {waypoint.translation}.")
+            all_ik_solutions.append(ik_sols)
+        
+        # Find the configuration that minimizes total joint displacement
+        best_q_list = None
+        best_total_cost = np.inf
+        
+        # Try each IK solution for the first waypoint as a starting configuration
+        for start_idx, start_q in enumerate(all_ik_solutions[0]):
+            print(f"planning for start_idx {start_idx}, q: {start_q}")
+            q_list = [start_q]
+            total_cost = 0.0
+            valid_path = True
+            
+            # For each subsequent waypoint, find the closest IK solution
+            for i in range(1, len(all_ik_solutions)):
+                prev_q = q_list[-1]
+                
+                # Find the IK solution that is closest to the previous configuration
+                min_dist = np.inf
+                best_q = None
+                
+                for candidate_q in all_ik_solutions[i]:
+                    # Calculate distance in configuration space
+                    dist = np.linalg.norm(candidate_q - prev_q)
+                    
+                    # Check if this configuration is within joint limits
+                    if self._is_within_limits(candidate_q):
+                        if dist < min_dist:
+                            min_dist = dist
+                            best_q = candidate_q
+                
+                if best_q is None:
+                    # No valid configuration found for this waypoint
+                    valid_path = False
+                    break
+                
+                q_list.append(best_q)
+                total_cost += min_dist
+            
+            # If we found a valid path through all waypoints
+            if valid_path and total_cost < best_total_cost:
+                best_total_cost = total_cost
+                best_q_list = q_list
+        
+        if best_q_list is None:
+            raise ValueError("No consistent configuration found for all waypoints.")
+        
+        return np.array(best_q_list)
+
+    def _is_within_limits(self, q: np.ndarray) -> bool:
+        """Check if configuration is within joint limits.
+        
+        Args:
+            q (np.ndarray): Joint configuration to check.
+        
+        Returns:
+            bool: True if within limits, False otherwise.
+        """
+        for i in range(len(q)):
+            if q[i] < self.q_min[i] or q[i] > self.q_max[i]:
+                return False
+        return True
 
 class RRTStarPlanner:
     def __init__(self, robot_interface: RobotInterface, planning_params: dict):

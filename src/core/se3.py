@@ -34,6 +34,12 @@ class SE3:
         new_trans = self.rotation.act(other.translation) + self.translation
         return SE3(new_trans, SO3(new_rot))
 
+    def __add__(self, other: SE3) -> SE3:
+        """Translate by another transformation, i.e., self + other"""
+        new_trans = self.translation + other.translation
+        new_rot = self.rotation * other.rotation
+        return SE3(new_trans, new_rot)
+
     def inverse(self) -> SE3:
         """Compute inverse of the transformation"""
         new_rot = self.rotation.rot.T.copy()

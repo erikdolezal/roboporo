@@ -2,12 +2,15 @@ import cv2
 from src.core.se3 import SE3
 from src.core.so3 import SO3
 import numpy as np
+import os
 from src.core.perception import find_hoop_homography, visualize_homography
 
 class RobotInterface:
     def __init__(self, robot):
         self.robot = robot
-        self.camera2robot_H = np.eye(3)
+        self.camera2robot_H = np.eye(3) if not os.path.exists("camera2robot_H.npy") else np.load("camera2robot_H.npy") 
+        self.robot2hoop = SE3(translation=np.array([0.0, 0.0, 0.135]), 
+                              rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 180.0, 0.0])), "xyz"))
 
     def __getattr__(self, name):
         return getattr(self.robot, name)
@@ -27,7 +30,7 @@ class RobotInterface:
 
     def move_absolute(self, phi, theta, psi, x, y, z):
         target_pose = SE3(translation = np.array([x, y, z]), 
-                            rotation=SO3().from_euler_angles(np.deg2rad(np.array([phi, theta, psi])), "xyz"))
+                            rotation=SO3().from_euler_angles(np.deg2rad(np.array([phi, theta, psi])), "xyz")) * self.robot2hoop.inverse()
         q0 = self.robot.get_q()
         ik_sols = np.asarray(self.robot.ik(target_pose.homogeneous()))
         ik_sols_mask = np.all(ik_sols < self.robot.q_max, axis=1) & np.all(ik_sols > self.robot.q_min, axis=1) 
@@ -43,7 +46,7 @@ class RobotInterface:
 
     def get_actual_pose(self):
         q0 = self.robot.get_q()
-        current_pose = self.robot.fk(q0)
+        current_pose = self.robot.fk(q0) * self.robot2hoop
         return SE3().from_homogeneous(current_pose)
 
     def move_joint_relative(self, joint_index, delta_angle_deg):
@@ -60,15 +63,15 @@ class RobotInterface:
 
     def calibrate_camera(self):
         target_positions = np.array([
-            [0.35, 0.0, 0.3],
-            [0.35, 0.1, 0.3],
-            [0.35, -0.1, 0.3],
-            [0.38, 0.0, 0.3],
-            [0.38, 0.1, 0.3],
-            [0.38, -0.1, 0.3],
-            [0.4, 0.0, 0.3],
-            [0.4, 0.1, 0.3],
-            [0.4, -0.1, 0.3],
+            [0.35, 0.0, 0.045],
+            [0.35, 0.1, 0.045],
+            [0.35, -0.1, 0.045],
+            [0.38, 0.0, 0.045],
+            [0.38, 0.1, 0.045],
+            [0.38, -0.1, 0.045],
+            [0.4, 0.0, 0.045],
+            [0.4, 0.1, 0.045],
+            [0.4, -0.1, 0.045],
 
         ])
         images = []
@@ -85,3 +88,26 @@ class RobotInterface:
         self.camera2robot_H = find_hoop_homography(images, real_positions)
         print("Computed homography:\n", self.camera2robot_H)
         visualize_homography(images[0], self.camera2robot_H)
+        np.save("camera2robot_H.npy", self.camera2robot_H)
+
+    def get_maze_position(self):
+        img = self.robot.grab_image()
+        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
+        parameters = cv2.aruco.DetectorParameters()
+
+        # Create the ArUco detector
+        detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
+        # Detect the markers
+        corners, ids, _ = detector.detectMarkers(gray_img)   
+
+        print("Detected markers:", ids)
+        if ids is not None:
+            cv2.aruco.drawDetectedMarkers(img, corners, ids)
+            cv2.imshow('Detected Markers', img)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+        
+
+        

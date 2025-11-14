@@ -13,23 +13,26 @@ class HoopPathOptimizer:
     Implements the global "batch" optimization logic (Solution 1).
     """
 
-    def __init__(self, robot_interface: RobotInterface, waypoints: List[SE3], fk_hoop, fk_arm):
+    def __init__(self, robot_interface: RobotInterface, waypoints: List[SE3], fk_hoop, fk_arm, init_guess: np.ndarray, max_iter: int = 200) -> None:
         self.robot_interface = robot_interface
         self.waypoints = waypoints
         self.fk_hoop = fk_hoop
         self.fk_end = fk_arm
+        self.init_guess = init_guess
+        self.max_iter = max_iter
 
         self.num_waypoints = len(self.waypoints)
         self.num_joints = self.robot_interface.q_min.shape[0]
 
         # --- Optimization Weights (TUNE THESE!) ---
-        self.W_POS = 1000.0  # Must be high
+        self.W_POS = 200.0  # Must be high
         self.W_MOVE = 1.0  # Smoothness
         self.W_PENALTY = 0.1  # Hoop orientation
+        self.W_ORTHO = 10.0  # Orthogonality to z-axis for last two waypoints
 
         # --- Constraints ---
         self.TABLE_Z_MIN = 0.06
-        self.TANGENT_MAX_ANGLE_RAD = np.radians(30.0)
+        self.TANGENT_MAX_ANGLE_RAD = np.radians(20.0)
         self.TANGENT_MIN_DOT_PROD = np.cos(self.TANGENT_MAX_ANGLE_RAD)
 
         self.AXIS_MIN_DOT_PROD = [0, 1, 0]
@@ -59,10 +62,18 @@ class HoopPathOptimizer:
             pos_error = T_pose.translation - waypoint_i.translation
             total_cost += self.W_POS * np.dot(pos_error, pos_error)
 
+            #!!!change to penalize specic q positions!!!
+
             # --- Cost 2: "Hoop Facing Away" Penalty ---
             hoop_y_axis = T_pose.rotation.rot[:, 1]
-            world_z_axis = np.array([0, 0, 1])
-            dot_prod = np.dot(hoop_y_axis, world_z_axis)
+            # The direction "toward me" (World +X)
+            me_vector = np.array([1, 0, 0])
+            # Calculate the dot product
+            # +1 = facing me (good)
+            # -1 = facing away (bad)
+            dot_prod = np.dot(hoop_y_axis, me_vector)
+            # The optimizer minimizes, so we want to minimize (-dot_prod)
+            # This maximizes the dot product.
             total_cost += self.W_PENALTY * (-dot_prod)
 
             # --- Cost 3: Joint Movement (Smoothness) ---
@@ -70,6 +81,23 @@ class HoopPathOptimizer:
                 q_prev = Q[i - 1]
                 move_error = q_i - q_prev
                 total_cost += self.W_MOVE * np.dot(move_error, move_error)
+
+            # --- Cost 4: Orthogonality to Z-axis for last two waypoints ---
+            if i >= self.num_waypoints - 2:
+                world_z_axis = np.array([0, 0, 1])
+                # Penalize if hoop axes are NOT orthogonal to z (i.e., dot product != 0)
+                # Check all three hoop axes
+                hoop_x_axis = T_pose.rotation.rot[:, 0]
+                hoop_y_axis = T_pose.rotation.rot[:, 1]
+
+                # Orthogonal means dot product should be 0
+                # Penalize the squared dot products
+                dot_x = np.dot(hoop_x_axis, world_z_axis)
+                dot_y = np.dot(hoop_y_axis, world_z_axis)
+
+                # Cost increases as any axis becomes non-orthogonal to z
+                ortho_cost = dot_x**2 + dot_y**2
+                total_cost += self.W_ORTHO * ortho_cost
 
         return total_cost
 
@@ -120,8 +148,7 @@ class HoopPathOptimizer:
 
         # 2. Define Initial Guess (X_guess)
 
-        intial_planner = PathFollowingPlanner(self.robot_interface, self.waypoints, self.robot_interface.hoop_ik)
-        q_list_guess = intial_planner.get_list_of_best_q()
+        q_list_guess = self.init_guess
 
         q_list_guess_2d = np.array(q_list_guess)
         X_guess = q_list_guess_2d.flatten()
@@ -135,16 +162,24 @@ class HoopPathOptimizer:
         # started minimizing
         print("Running global optimization (this may take a while)...")
 
-        result = minimize(self._objective_function, X_guess, method="SLSQP", bounds=global_bounds, constraints=constraints, options={"maxiter": 200, "disp": True})  # Be patient!
+        result = minimize(self._objective_function, X_guess, method="SLSQP", bounds=global_bounds, constraints=constraints, options={"maxiter": self.max_iter, "disp": True})  # Be patient!
 
         # done minimizing
         print("Global optimization completed.")
 
         if not result.success:
-            raise ValueError("Global optimization failed to converge. " f"Message: {result.message}")
+            # Check *why* it failed.
+            if "Iteration limit reached" in result.message:
+                print(f"WARNING: Iteration limit reached. Using best solution found so far.")
+                print(f"         Final cost: {result.fun}")
+                # We accept this, but it's not guaranteed to be optimal OR valid.
+            else:
+                # This is a *real* failure (e.g., incompatible constraints)
+                raise ValueError("Global optimization failed to converge. " f"Message: {result.message}")
 
         print("\nGlobal optimization successful.")
 
         # 5. Unpack the final solution
-        final_Q = self._unpack_X(result.x)
-        return final_Q
+        optimized_Q = self._unpack_X(result.x)
+
+        return optimized_Q

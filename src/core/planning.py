@@ -123,6 +123,9 @@ class PathFollowingPlanner:
                 prev_q = q_list[-1]
 
                 # Find the IK solution that is closest to the previous configuration
+
+                # add penalization for configurations that put loop under arm
+
                 min_dist = np.inf
                 best_q = None
 

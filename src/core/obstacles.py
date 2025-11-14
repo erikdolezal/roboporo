@@ -6,8 +6,9 @@ from typing import List
 import matplotlib.pyplot as plt
 from src.core.helpers import draw_3d_frame
 
+
 class Obstacle:
-    def __init__(self, type: str, path: str, transform: SE3, radius: float = 0.005, start: float = 0.04, end: float = 10.0) -> None:
+    def __init__(self, type: str, path: str, transform: SE3, radius: float = 0.005, start: float = 0.04, end: float = 10.0, num_waypoints: int = 20) -> None:
         self.type = type
         self.path = path
         self.transform = transform
@@ -18,64 +19,60 @@ class Obstacle:
         self.box = None
         self.box_offset = np.array([0.1, 0.1, 0.1])
         self.waypoints: List[SE3] = []
-        
+        self.num_waypoints = num_waypoints
+
     def prep_obstacle(self) -> None:
-        """Prepare the obstacle by loading, cropping, transforming, and hiding it in a box.
-        """
+        """Prepare the obstacle by loading, cropping, transforming, and hiding it in a box."""
         self.open_centerline()
         self.crop_centerline_z()
         self.tranform_centerline()
-        self.sample_centerline_points(num_points=20)
-        self.hide_in_box(offset=self.box_offset)        
+        self.sample_centerline_points(num_points=self.num_waypoints)
+        self.hide_in_box(offset=self.box_offset)
 
-
-        fig = plt.figure(figsize=(8,8), layout="tight")
-        ax = fig.add_subplot(111, projection='3d')
+        fig = plt.figure(figsize=(8, 8), layout="tight")
+        ax = fig.add_subplot(111, projection="3d")
         ax.plot(*self.line_final.T)
 
         for wp in self.waypoints:
             draw_3d_frame(ax, wp.rotation.rot, wp.translation, scale=0.02)
 
-        ax.set_aspect('equal')
+        ax.set_aspect("equal")
         ax.set_xlabel("x")
         ax.set_ylabel("y")
         ax.set_zlabel("z")
         plt.show()
-            
+
     def check_point_in_box(self, point: np.ndarray) -> bool:
-        """Check if a given point is inside the obstacle's box.
-        """
+        """Check if a given point is inside the obstacle's box."""
         if self.box is None:
             raise ValueError("Box not defined. Call hide_in_box() first.")
         min_coords, max_coords = self.box
         return np.all(point >= min_coords) and np.all(point <= max_coords)
-    
+
     def get_centerline(self) -> np.ndarray:
-        """Get the transformed centerline points.
-        """
+        """Get the transformed centerline points."""
         if self.line_final is None:
             raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
         return self.line_final
-    
+
     def change_box_offset(self, new_offset: np.ndarray) -> None:
-        """Change the box offset for hiding the obstacle.
-        """
+        """Change the box offset for hiding the obstacle."""
         if new_offset.shape != (3,):
             raise ValueError("Offset must be a 3D vector.")
         self.box_offset = new_offset
         self.hide_in_box(offset=self.box_offset)
-        
+
     def sample_centerline_points(self, num_points: int = 30) -> list[SE3]:
         if self.line_final is None:
             raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
-        
+
         if num_points <= 0:
             raise ValueError("num_points must be positive.")
-        
+
         total_points = len(self.line_final)
         if num_points > total_points:
             raise ValueError(f"num_points ({num_points}) cannot exceed total points ({total_points}).")
-        
+
         # Calculate step size to sample every xth point
         if num_points == 1:
             indices = [0]
@@ -87,15 +84,15 @@ class Obstacle:
             # Ensure first and last indices are exact
             indices[0] = 0
             indices[-1] = total_points - 1
-        
+
         # Sample points
         sampled_points = self.line_final[indices]
-        
+
         # Create SE3 transformations with tangent directions
         se3_list = []
         for i, idx in enumerate(indices):
-            position = np.mean(self.line_final[max(0, idx-2):min(total_points, idx+3)], axis=0)
-            
+            position = np.mean(self.line_final[max(0, idx - 2) : min(total_points, idx + 3)], axis=0)
+
             # Calculate tangent direction
             if idx == 0:
                 # First point: use direction to next point
@@ -107,7 +104,7 @@ class Obstacle:
                 # Middle points: use central difference
                 tangent = self.line_final[idx + 1] - self.line_final[idx - 1]
 
-            _, _, Vt = np.linalg.svd(self.line_final[max(0, idx-2):min(total_points, idx+3)] - position)
+            _, _, Vt = np.linalg.svd(self.line_final[max(0, idx - 2) : min(total_points, idx + 3)] - position)
 
             if np.dot(tangent, Vt[0]) < 0:
                 tangent = -Vt[0]
@@ -131,8 +128,8 @@ class Obstacle:
             # Create rotation matrix
             rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
             rotation_matrix *= np.linalg.det(rotation_matrix)
-            #print(f"rot: {rotation_matrix}, det {np.linalg.det(rotation_matrix)}")
-            
+            # print(f"rot: {rotation_matrix}, det {np.linalg.det(rotation_matrix)}")
+
             # Create SE3 transformation
             se3 = SE3(translation=position, rotation=SO3(rotation_matrix))
             se3_list.append(se3)
@@ -148,16 +145,14 @@ class Obstacle:
     # ----------------------Inner-Helper-Functions-----------------------------------------------
 
     def open_centerline(self) -> None:
-        """Open the centerline file for the obstacle.
-        """
+        """Open the centerline file for the obstacle."""
         if self.line_raw is None:
             path_to_file = os.path.join(self.path, f"{self.type}_centerline.npy")
             self.line_raw = np.load(path_to_file)
-            self.line_raw = self.line_raw.astype(np.float64)/1000.0  # Convert mm to m
-            
+            self.line_raw = self.line_raw.astype(np.float64) / 1000.0  # Convert mm to m
+
     def crop_centerline_z(self) -> None:
-        """Crop the centerline based on start and end distances.
-        """
+        """Crop the centerline based on start and end distances."""
         if self.line_raw is None:
             raise ValueError("Centerline not loaded. Call open_centerline() first.")
         z_values = self.line_raw[:, 2]
@@ -168,11 +163,10 @@ class Obstacle:
 
         start_idx = idxs[0]
         end_idx = idxs[-1]
-        self.line_raw = self.line_raw[start_idx:end_idx+1]
-        
+        self.line_raw = self.line_raw[start_idx : end_idx + 1]
+
     def tranform_centerline(self) -> None:
-        """Transform the centerline points using the obstacle's SE3 transform.
-        """
+        """Transform the centerline points using the obstacle's SE3 transform."""
         if self.line_raw is None:
             raise ValueError("Centerline not loaded. Call open_centerline() first.")
         transformed_points = []
@@ -180,15 +174,11 @@ class Obstacle:
             transformed_point = self.transform.act(point)
             transformed_points.append(transformed_point)
         self.line_final = np.array(transformed_points)
-    
+
     def hide_in_box(self, offset: np.ndarray) -> None:
-        """Hide the obstacle within a box defined by offset and size.
-        """
+        """Hide the obstacle within a box defined by offset and size."""
         if self.line_final is None:
             raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
         min_coords = np.min(self.line_final, axis=0) - offset
         max_coords = np.max(self.line_final, axis=0) + offset
         self.box = (min_coords, max_coords)
-
-
-

@@ -3,13 +3,15 @@ from src.core.se3 import SE3
 from src.core.so3 import SO3
 import numpy as np
 import os
-from src.core.perception import find_hoop_homography, visualize_homography, project_homography
+from src.core.perception import find_hoop_homography
+from src.core.helpers import visualize_homography, project_homography
+from configs.aruco_config import aruco_config
 
 class RobotInterface:
     def __init__(self, robot):
         self.robot = robot
         self.camera2robot_H = np.eye(3) if not os.path.exists("camera2robot_H.npy") else np.load("camera2robot_H.npy") 
-        self.robot2hoop = SE3(translation=np.array([0.135, 0.0, 0.0]), 
+        self.robot2hoop = SE3(translation=np.array([-0.135, 0.0, 0.0]), 
                               rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 180.0, 0.0])), "xyz"))
 
     def __getattr__(self, name):
@@ -37,7 +39,7 @@ class RobotInterface:
 
     def hoop_ik(self, target_pose):
         flange_pose = target_pose * SE3(
-                      rotation = self.robot2hoop.rotation, translation=-self.robot2hoop.translation).inverse()
+                      rotation = self.robot2hoop.rotation, translation=self.robot2hoop.translation).inverse()
         return np.asarray(self.robot.ik(flange_pose.homogeneous()))
 
     def move_absolute(self, phi, theta, psi, x, y, z):
@@ -57,6 +59,11 @@ class RobotInterface:
         else:
             print("tos prestrelil miso")
             return False
+
+    def hoop_fk(self, q):
+        current_pose = SE3().from_homogeneous(self.robot.fk(q))
+        current_pose = current_pose * self.robot2hoop
+        return current_pose
 
     def get_actual_pose(self):
         q0 = self.robot.get_q()
@@ -106,17 +113,39 @@ class RobotInterface:
         detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
         # Detect the markers
         corners, ids, _ = detector.detectMarkers(gray_img)   
-        projected_corners = [project_homography(self.camera2robot_H, corner_set[0]) for corner_set in corners]
-        board_center = np.mean(np.vstack((projected_corners[0], projected_corners[1])), axis=0)
-        diag_vec = np.mean(projected_corners[np.where((ids == 2).flatten())[0][0]], axis=0) - np.mean(projected_corners[np.where((ids == 1).flatten())[0][0]], axis=0)
-        diag_angle = np.atan2(diag_vec[1], diag_vec[0])
-        maze_pose = SE3(translation=np.array([*board_center, 0.05]), rotation=SO3().from_euler_angles(np.array([0, 0, diag_angle + np.pi/4]), "xyz"))
+
+        target_corners = np.array([project_homography(self.camera2robot_H, corner_set[0]) for corner_set in corners]).reshape(-1, 2)
+        target_corners = np.hstack((target_corners, 0.05*np.ones((target_corners.shape[0], 1))))
+
+        aruco_corners = np.array([aruco_config[id[0]]["corners"] for id in ids]).reshape(-1, 3) if ids is not None else np.array([[]])
+
+        target_mean = np.mean(target_corners, axis=0) if target_corners.shape[0] > 0 else np.array([0,0,0])
+        aruco_mean = np.mean(aruco_corners, axis=0) if aruco_corners.shape[0] > 0 else np.array([0,0,0])
+
+        target_corners_centered = target_corners - target_mean
+        aruco_corners_centered = aruco_corners - aruco_mean
+
+        H = aruco_corners_centered.T @ target_corners_centered
+        U, _, Vt = np.linalg.svd(H)
+        R = Vt.T @ U.T  
+
+        if np.linalg.det(R) < 0:
+            Vt[2, :] *= -1
+            R = Vt.T @ U.T
+
+        t = target_mean - R @ aruco_mean
+
+        maze_pose = SE3(translation=t, rotation=SO3(R))
+
+        def draw_extra(ax):
+            ax[1].plot([t[0], t[0]+0.05*R[0,0]], [t[1], t[1]+0.05*R[1,0]], c='r')
+            ax[1].plot([t[0], t[0]+0.05*R[0,1]], [t[1], t[1]+0.05*R[1,1]], c='g')
             
         if ids is not None:
             cv2.aruco.drawDetectedMarkers(img, corners, ids)
-            cv2.circle(img, center=project_homography(np.linalg.inv(self.camera2robot_H), board_center[None, :]).astype(int)[0], radius=50, color=(0, 255, 0), thickness=2)
+            cv2.circle(img, center=project_homography(np.linalg.inv(self.camera2robot_H), maze_pose.translation[None, :2]).astype(int)[0], radius=50, color=(0, 255, 0), thickness=2)
         print(maze_pose)
-        visualize_homography(img, self.camera2robot_H)
+        visualize_homography(img, self.camera2robot_H, draw_extra=draw_extra)
     
         return maze_pose
 

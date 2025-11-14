@@ -47,6 +47,17 @@ def visualize_homography(img, H: np.ndarray, real_positions=None, draw_extra=Non
     ax[1].set_title("Transformed Image")
     plt.show()
 
+def draw_3d_frame(ax, R, t, scale=0.1):
+    """Draws a 3D coordinate frame given SE3 matrix T"""
+    # Axes endpoints
+    x_axis = t + scale * R[:, 0]
+    y_axis = t + scale * R[:, 1]
+    z_axis = t + scale * R[:, 2]
+    # Plot each axis
+    ax.plot([t[0], x_axis[0]], [t[1], x_axis[1]], [t[2], x_axis[2]], color='r')
+    ax.plot([t[0], y_axis[0]], [t[1], y_axis[1]], [t[2], y_axis[2]], color='g')
+    ax.plot([t[0], z_axis[0]], [t[1], z_axis[1]], [t[2], z_axis[2]], color='b')
+
 def project_homography(H, points):
     projected_points = np.hstack((points, np.ones((points.shape[0], 1)))) @ H.T
     return projected_points[:, :-1] / projected_points[:, -1:]

@@ -38,8 +38,7 @@ class RobotInterface:
 
 
     def hoop_ik(self, target_pose):
-        flange_pose = target_pose * SE3(
-                      rotation = self.robot2hoop.rotation, translation=self.robot2hoop.translation).inverse()
+        flange_pose = target_pose * self.robot2hoop.inverse()
         return np.asarray(self.robot.ik(flange_pose.homogeneous()))
 
     def move_absolute(self, phi, theta, psi, x, y, z):
@@ -100,7 +99,7 @@ class RobotInterface:
 
         self.camera2robot_H = find_hoop_homography(images, real_positions)
         print("Computed homography:\n", self.camera2robot_H)
-        visualize_homography(images[0], self.camera2robot_H, real_positions)
+        visualize_homography(images[0], self.camera2robot_H, real_positions=real_positions)
         np.save("camera2robot_H.npy", self.camera2robot_H)
 
     def get_maze_position(self):

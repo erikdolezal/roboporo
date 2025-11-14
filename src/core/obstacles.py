@@ -4,6 +4,7 @@ from src.core.se3 import SE3
 from src.core.so3 import SO3
 from typing import List
 import matplotlib.pyplot as plt
+from src.core.helpers import draw_3d_frame
 
 class Obstacle:
     def __init__(self, type: str, path: str, transform: SE3, radius: float = 0.005, start: float = 0.04, end: float = 10.0) -> None:
@@ -24,16 +25,22 @@ class Obstacle:
         self.open_centerline()
         self.crop_centerline_z()
         self.tranform_centerline()
-        fig = plt.figure(figsize=(10,10), layout="tight")
+        self.sample_centerline_points(num_points=20)
+        self.hide_in_box(offset=self.box_offset)        
+
+
+        fig = plt.figure(figsize=(8,8), layout="tight")
         ax = fig.add_subplot(111, projection='3d')
         ax.plot(*self.line_final.T)
+
+        for wp in self.waypoints:
+            draw_3d_frame(ax, wp.rotation.rot, wp.translation, scale=0.02)
+
         ax.set_aspect('equal')
         ax.set_xlabel("x")
         ax.set_ylabel("y")
         ax.set_zlabel("z")
         plt.show()
-        self.sample_centerline_points(num_points=20)
-        self.hide_in_box(offset=self.box_offset)        
             
     def check_point_in_box(self, point: np.ndarray) -> bool:
         """Check if a given point is inside the obstacle's box.
@@ -87,7 +94,7 @@ class Obstacle:
         # Create SE3 transformations with tangent directions
         se3_list = []
         for i, idx in enumerate(indices):
-            position = sampled_points[i]
+            position = np.mean(self.line_final[max(0, idx-2):min(total_points, idx+3)], axis=0)
             
             # Calculate tangent direction
             if idx == 0:
@@ -99,7 +106,14 @@ class Obstacle:
             else:
                 # Middle points: use central difference
                 tangent = self.line_final[idx + 1] - self.line_final[idx - 1]
-            
+
+            _, _, Vt = np.linalg.svd(self.line_final[max(0, idx-2):min(total_points, idx+3)] - position)
+
+            if np.dot(tangent, Vt[0]) < 0:
+                tangent = -Vt[0]
+            else:
+                tangent = Vt[0]
+
             # Normalize tangent
             tangent = tangent / np.linalg.norm(tangent)
 
@@ -107,10 +121,8 @@ class Obstacle:
             z_axis = tangent
 
             # Choose arbitrary perpendicular vector for y-axis
-            if abs(z_axis[2]) < 0.9:
-                x_axis = np.cross(z_axis, [0, 1, 0])
-            else:
-                x_axis = np.cross(z_axis, [1, 0, 0])
+            x_axis = np.cross(z_axis, [0, 1, 0])
+
             x_axis = x_axis / np.linalg.norm(x_axis)
 
             # Complete the orthonormal basis

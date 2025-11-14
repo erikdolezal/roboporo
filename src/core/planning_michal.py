@@ -2,7 +2,7 @@ import numpy as np
 from scipy.optimize import minimize, Bounds
 from typing import List, Optional
 
-from core.se3 import SE3
+from src.core.se3 import SE3
 
 from src.interface.robot_interface import RobotInterface
 from src.core.planning import PathFollowingPlanner
@@ -16,9 +16,11 @@ class HoopPathOptimizer:
     def __init__(self, robot_interface: RobotInterface, waypoints: List[SE3], fk_hoop, fk_arm):
         self.robot_interface = robot_interface
         self.waypoints = waypoints
+        self.fk_hoop = fk_hoop
+        self.fk_end = fk_arm
 
         self.num_waypoints = len(self.waypoints)
-        self.num_joints = self.robot_interface.num_joints
+        self.num_joints = self.robot_interface.q_min.shape[0]
 
         # --- Optimization Weights (TUNE THESE!) ---
         self.W_POS = 1000.0  # Must be high
@@ -29,6 +31,8 @@ class HoopPathOptimizer:
         self.TABLE_Z_MIN = 0.06
         self.TANGENT_MAX_ANGLE_RAD = np.radians(30.0)
         self.TANGENT_MIN_DOT_PROD = np.cos(self.TANGENT_MAX_ANGLE_RAD)
+
+        self.AXIS_MIN_DOT_PROD = [0, 1, 0]
 
     def _unpack_X(self, X: np.ndarray) -> np.ndarray:
         """Helper to reshape the flat 1D variable array into a 2D array."""
@@ -49,7 +53,7 @@ class HoopPathOptimizer:
 
             # --- Forward Kinematics (the bottleneck) ---
             T_matrix = self.fk_hoop(q_i)
-            T_pose = SE3().from_homogeneous(T_matrix)
+            T_pose = T_matrix
 
             # --- Cost 1: Position Error ---
             pos_error = T_pose.translation - waypoint_i.translation
@@ -89,7 +93,7 @@ class HoopPathOptimizer:
         Q = self._unpack_X(X)
         results = np.zeros(self.num_waypoints)
         for i in range(self.num_waypoints):
-            T_pose = SE3().from_homogeneous(self.fk_hoop(Q[i]))
+            T_pose = self.fk_hoop(Q[i])
             stick_tangent = self.waypoints[i].rotation.rot[:, 2]
             hoop_z_axis = T_pose.rotation.rot[:, 2]
 
@@ -128,7 +132,13 @@ class HoopPathOptimizer:
 
         # 4. Run the Optimizer
 
-        result = minimize(self._objective_function, X_guess, method="SLSQP", bounds=global_bounds, constraints=constraints, options={"maxiter": 1000, "disp": True})  # Be patient!
+        # started minimizing
+        print("Running global optimization (this may take a while)...")
+
+        result = minimize(self._objective_function, X_guess, method="SLSQP", bounds=global_bounds, constraints=constraints, options={"maxiter": 200, "disp": True})  # Be patient!
+
+        # done minimizing
+        print("Global optimization completed.")
 
         if not result.success:
             raise ValueError("Global optimization failed to converge. " f"Message: {result.message}")

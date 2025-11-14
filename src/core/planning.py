@@ -9,14 +9,14 @@ import yaml
 class Planning:
     def __init__(self, robot_interface: RobotInterface, planning_params_path: str, obstacles: list = None):
         self.robot_interface = robot_interface
-        
+
         # Load parameters from yaml file
         self.planning_params = self.load_planning_params(planning_params_path)
 
         self.obstacles = obstacles if obstacles is not None else []
-        
+
         self.planner = None
-        
+
     def load_planning_params(self, planning_params_path: str) -> dict:
         """Load planning parameters from a YAML file.
 
@@ -25,10 +25,10 @@ class Planning:
         Returns:
             dict: A dictionary containing the planning parameters.
         """
-        with open(planning_params_path, 'r') as file:
+        with open(planning_params_path, "r") as file:
             planning_params = yaml.safe_load(file)
         return planning_params
-    
+
     def choose_planner(self, planner_type: str):
         """Choose the planner type.
 
@@ -36,10 +36,10 @@ class Planning:
             planner_type (str): The type of planner to use (e.g., 'RRTStar').
         """
         # For now, only RRTStar is implemented
-        if planner_type == 'RRTStar':
+        if planner_type == "RRTStar":
             self.planner = RRTStarPlanner(self.robot_interface, self.planning_params)
             self.planner.set_obstacles(self.obstacles)
-        elif planner_type == 'PathFollowing':
+        elif planner_type == "PathFollowing":
             # Placeholder for PathFollowing planner
             pass
         else:
@@ -47,7 +47,7 @@ class Planning:
 
 
 class PathFollowingPlanner:
-    def __init__(self, robot_interface: RobotInterface, waypoints: Obstacle, ik_func, planning_params: dict = {}):
+    def __init__(self, robot_interface: RobotInterface, waypoints: list, ik_func, planning_params: dict = {}):
         self.robot_interface = robot_interface
         self.planning_params = planning_params
         self.waypoints = waypoints
@@ -55,118 +55,114 @@ class PathFollowingPlanner:
         self.q_min = robot_interface.q_min
         self.ik_func = ik_func
 
-
     def get_list_of_best_q(self) -> np.ndarray:
         """Get list of joint configurations for the waypoints.
-        
+
         This function ensures that the robot follows the path without changing
         configuration (solution branch). Since the end-effector is a loop, only
         the position and tangent direction matter, not the rotation around the tangent.
 
         Returns:
             np.ndarray: Array of joint configurations for each waypoint.
-        
+
         Raises:
             ValueError: If no consistent IK solution is found for all waypoints.
         """
         if not self.waypoints:
             raise ValueError("No waypoints available.")
-        
+
         # Get all IK solutions for each waypoint
         all_ik_solutions = []
         for waypoint in self.waypoints:
             # Generate multiple orientations around the tangent axis
             ik_sols_all = []
-            
+
             # Try different rotations around the x-axis (tangent direction)
             num_rotations = 8  # Sample 8 different orientations around the tangent
-            for angle in np.linspace(0, 2*np.pi, num_rotations, endpoint=False):
+            for angle in np.linspace(0, 2 * np.pi, num_rotations, endpoint=False):
                 print(angle)
                 # Rotate around x-axis (tangent direction)
                 rot_around_tangent = SO3.from_angle_axis(angle, np.array([0, 0, 1]))
-                modified_waypoint = SE3(
-                    translation=waypoint.translation,
-                    rotation=waypoint.rotation * rot_around_tangent
-                )
+                modified_waypoint = SE3(translation=waypoint.translation, rotation=waypoint.rotation * rot_around_tangent)
 
                 print(modified_waypoint)
-                
+
                 ik_sols = np.asarray(self.ik_func(modified_waypoint))
                 if len(ik_sols) > 0:
-                    ik_sols_mask = np.all(ik_sols < self.robot_interface.q_max, axis=1) & np.all(ik_sols > self.robot_interface.q_min, axis=1) 
+                    ik_sols_mask = np.all(ik_sols < self.robot_interface.q_max, axis=1) & np.all(ik_sols > self.robot_interface.q_min, axis=1)
                     ik_sols = ik_sols[ik_sols_mask]
                 if len(ik_sols) > 0:
                     ik_sols_all.append(ik_sols)
-            
+
             if len(ik_sols_all) == 0:
                 raise ValueError(f"No IK solution found for waypoint at {waypoint.translation}.")
-            
+
             # Combine all solutions and filter by joint limits
             ik_sols_combined = np.vstack(ik_sols_all)
             ik_sols_mask = np.all(ik_sols_combined < self.robot_interface.q_max, axis=1) & np.all(ik_sols_combined > self.robot_interface.q_min, axis=1)
             ik_sols_filtered = ik_sols_combined[ik_sols_mask]
-            
+
             if len(ik_sols_filtered) == 0:
                 raise ValueError(f"No valid IK solution within joint limits for waypoint at {waypoint.translation}.")
-            
+
             all_ik_solutions.append(ik_sols_filtered)
-        
+
         # Find the configuration that minimizes total joint displacement
         best_q_list = None
         best_total_cost = np.inf
-        
+
         # Try each IK solution for the first waypoint as a starting configuration
         for start_idx, start_q in enumerate(all_ik_solutions[0]):
-            #print(f"planning for start_idx {start_idx}/{len(all_ik_solutions[0])}, q: {start_q}")
+            # print(f"planning for start_idx {start_idx}/{len(all_ik_solutions[0])}, q: {start_q}")
             q_list = [start_q]
             total_cost = 0.0
             valid_path = True
-            
+
             # For each subsequent waypoint, find the closest IK solution
             for i in range(1, len(all_ik_solutions)):
                 prev_q = q_list[-1]
-                
+
                 # Find the IK solution that is closest to the previous configuration
                 min_dist = np.inf
                 best_q = None
-                
+
                 for candidate_q in all_ik_solutions[i]:
 
                     if SE3().from_homogeneous(self.robot_interface.fk(candidate_q)).translation[2] < 0.06:
                         continue
                     # Calculate distance in configuration space
                     dist = np.linalg.norm(candidate_q - prev_q)
-                    
+
                     if dist < min_dist:
                         min_dist = dist
                         best_q = candidate_q
-                
+
                 if best_q is None:
                     # No valid configuration found for this waypoint
                     valid_path = False
                     break
-                
+
                 q_list.append(best_q)
                 total_cost += min_dist
-            
+
             # If we found a valid path through all waypoints
             if valid_path and total_cost < best_total_cost:
                 best_total_cost = total_cost
                 best_q_list = q_list
                 print(f"  -> Found better path with cost: {best_total_cost:.4f}")
-        
+
         if best_q_list is None:
             raise ValueError("No consistent configuration found for all waypoints.")
-        
+
         print(f"Best path found with total cost: {best_total_cost:.4f}")
         return np.array(best_q_list)
 
     def _is_within_limits(self, q: np.ndarray) -> bool:
         """Check if configuration is within joint limits.
-        
+
         Args:
             q (np.ndarray): Joint configuration to check.
-        
+
         Returns:
             bool: True if within limits, False otherwise.
         """
@@ -175,13 +171,14 @@ class PathFollowingPlanner:
                 return False
         return True
 
+
 class RRTStarPlanner:
     def __init__(self, robot_interface: RobotInterface, planning_params: dict):
         self.robot_interface = robot_interface
         self.planning_params = planning_params
         self.obstacles = []
         # C-space requires joint limits; expect them in planning_params
-        joint_limits = planning_params.get('joint_limits', None)
+        joint_limits = planning_params.get("joint_limits", None)
         self.c_space = self.CSpace(robot_interface, joint_limits)
 
         self.tree_root = None
@@ -200,16 +197,16 @@ class RRTStarPlanner:
         # best goal tracking (RRT* will improve cost over time)
         best_goal_node = None
         best_goal_cost = np.inf
-        
+
         # Check if start and goal are connected directly
         if self.collision_free_edge(start, goal):
             self.tree_goal.parent = self.tree_root
             self.tree_goal.cost = np.linalg.norm(goal - start)
             self.tree_nodes.append(self.tree_goal)
             return self.get_path()
-        
+
         # RRT* main loop
-        for _ in range(self.planning_params['rrt']['max_iterations']):
+        for _ in range(self.planning_params["rrt"]["max_iterations"]):
             # Sample a random configuration
             q_rand = self.sample_random_configuration()
 
@@ -226,12 +223,12 @@ class RRTStarPlanner:
             if not self.collision_free_edge(nearest_node.q, new_node.q):
                 continue
 
-            neighbor_radius = self.planning_params.get('rrt', {}).get('neighbor_radius', None)
+            neighbor_radius = self.planning_params.get("rrt", {}).get("neighbor_radius", None)
             if neighbor_radius is None:
                 # default dynamic radius: gamma * (log(n)/n)^(1/d)
                 n = max(1, len(self.tree_nodes))
                 d = float(len(start)) if start is not None else 1.0
-                gamma = float(self.planning_params.get('rrt', {}).get('rrt_star_gamma', 1.5))
+                gamma = float(self.planning_params.get("rrt", {}).get("rrt_star_gamma", 1.5))
                 neighbor_radius = gamma * (np.log(n + 1) / (n + 1)) ** (1.0 / d)
 
             neighbors = self.find_neighbors(new_node.q, neighbor_radius)
@@ -268,7 +265,7 @@ class RRTStarPlanner:
 
             # Goal check: try to connect new_node to goal
             dist_to_goal = np.linalg.norm(new_node.q - goal)
-            if dist_to_goal < self.planning_params.get('rrt', {}).get('goal_tolerance', 1e-3):
+            if dist_to_goal < self.planning_params.get("rrt", {}).get("goal_tolerance", 1e-3):
                 if self.collision_free_edge(new_node.q, goal):
                     goal_cost = new_node.cost + dist_to_goal
                     if goal_cost < best_goal_cost:
@@ -285,11 +282,11 @@ class RRTStarPlanner:
             pass
 
         return self.get_path()
-    
+
     def get_path(self) -> np.ndarray:
         """Retrieve the planned path from start to goal.
-         Returns:
-            path (np.ndarray): The planned path as an array of configurations.
+        Returns:
+           path (np.ndarray): The planned path as an array of configurations.
         """
         path = []
         current_node = self.tree_goal
@@ -299,7 +296,7 @@ class RRTStarPlanner:
         path.reverse()
         return np.array(path)
 
-    def steer(self, from_node: 'RRTStarPlanner.Node', to_q: np.ndarray) -> 'RRTStarPlanner.Node':
+    def steer(self, from_node: "RRTStarPlanner.Node", to_q: np.ndarray) -> "RRTStarPlanner.Node":
         """Steers the branch from a tree node in direction of chosen node
 
         Args:
@@ -313,13 +310,13 @@ class RRTStarPlanner:
         norm = np.linalg.norm(vec)
         if norm <= 0.0:
             return self.Node(parent=from_node, q=from_node.q.copy(), cost=from_node.cost)
-        step = float(self.planning_params.get('rrt', {}).get('step_size', 0.1))
+        step = float(self.planning_params.get("rrt", {}).get("step_size", 0.1))
         direction = (vec / norm) * min(step, norm)
         new_q = from_node.q + direction
         new_node = self.Node(parent=from_node, q=new_q, cost=from_node.cost + np.linalg.norm(direction))
         return new_node
-    
-    def find_nearest_node(self, q_rand: np.ndarray) -> 'RRTStarPlanner.Node':
+
+    def find_nearest_node(self, q_rand: np.ndarray) -> "RRTStarPlanner.Node":
         """Find the nearest node in the tree to the random configuration.
         Args:
             q_rand (np.ndarray): The random configuration.
@@ -331,17 +328,17 @@ class RRTStarPlanner:
         # vectorized distance computation for speed
         q_array = np.vstack([np.atleast_1d(n.q) for n in self.tree_nodes])
         diffs = q_array - q_rand
-        d2 = np.einsum('ij,ij->i', diffs, diffs)
+        d2 = np.einsum("ij,ij->i", diffs, diffs)
         idx = int(np.argmin(d2))
         return self.tree_nodes[idx]
-    
+
     def sample_random_configuration(self) -> np.ndarray:
         """Sample a random configuration within the robot's joint limits.
 
         Returns:
             q_rand (np.ndarray): Random configuration.
         """
-        joint_limits = self.planning_params['joint_limits']
+        joint_limits = self.planning_params["joint_limits"]
         q_rand = np.array([np.random.uniform(low, high) for low, high in joint_limits])
         return q_rand
 
@@ -351,7 +348,7 @@ class RRTStarPlanner:
             return []
         q_array = np.vstack([np.atleast_1d(n.q) for n in self.tree_nodes])
         diffs = q_array - q
-        d2 = np.einsum('ij,ij->i', diffs, diffs)
+        d2 = np.einsum("ij,ij->i", diffs, diffs)
         idxs = np.where(d2 <= radius * radius)[0]
         return [self.tree_nodes[int(i)] for i in idxs]
 
@@ -364,7 +361,7 @@ class RRTStarPlanner:
         dist = np.linalg.norm(q2 - q1)
         if dist == 0.0:
             return not self.c_space.is_in_c_space(q1)
-        step = float(self.planning_params.get('rrt', {}).get('edge_check_steps', self.planning_params.get('rrt', {}).get('step_size', 0.1)))
+        step = float(self.planning_params.get("rrt", {}).get("edge_check_steps", self.planning_params.get("rrt", {}).get("step_size", 0.1)))
         n_samples = max(1, int(np.ceil(dist / step)))
         for i in range(1, n_samples + 1):
             t = i / float(n_samples)
@@ -388,26 +385,26 @@ class RRTStarPlanner:
 
     def set_obstacles(self, obstacles: list):
         """Sets the obstacles for the planner.
-            Args:
-                obstacles (List): list of obstacles to set
+        Args:
+            obstacles (List): list of obstacles to set
         """
         self.obstacles = obstacles
-    
+
     def set_number_of_iterations(self, n: int):
         """Set the number of iterations for the planner.
 
         Args:
             n (int): The number of iterations.
         """
-        self.planning_params['rrt']['num_iterations'] = n
-        
+        self.planning_params["rrt"]["num_iterations"] = n
+
     def set_step_size(self, step_size: float):
         """Set the step size for the planner.
 
         Args:
             step_size (float): The step size.
         """
-        self.planning_params['rrt']['step_size'] = step_size
+        self.planning_params["rrt"]["step_size"] = step_size
 
     def set_goal_tolerance(self, tolerance: float):
         """Set the goal tolerance for the planner.
@@ -415,22 +412,20 @@ class RRTStarPlanner:
         Args:
             tolerance (float): The goal tolerance.
         """
-        self.planning_params['rrt']['goal_tolerance'] = tolerance
-        
-    
+        self.planning_params["rrt"]["goal_tolerance"] = tolerance
+
     class Node:
-        def __init__(self, parent = None, q = None, cost = 0.0):
+        def __init__(self, parent=None, q=None, cost=0.0):
             self.parent = parent
             self.q = q
             self.cost = cost
-            
-            
+
     class CSpace:
         def __init__(self, robot_interface: RobotInterface, joint_limits: np.ndarray):
             self.robot_interface = robot_interface
             self.joint_limits = joint_limits
             self.obstacles = []
-            
+
         def add_obstacle(self, obstacle):
             """Adds obstacles to existing ones
 
@@ -438,7 +433,7 @@ class RRTStarPlanner:
                 obstacle (List): list of obstacles to add
             """
             self.obstacles.extend(obstacle)
-        
+
         def is_in_c_space(self, current_q: np.ndarray) -> bool:
             """Check if the given configuration is within the configuration space.
             Args:
@@ -446,15 +441,15 @@ class RRTStarPlanner:
             Returns:
                 bool: True if in configuration space, False otherwise.
             """
-            
+
             for i, (low, high) in enumerate(self.joint_limits):
                 if not (low <= current_q[i] <= high):
                     return False
-                
+
             for obstacle in self.obstacles:
                 if obstacle.is_in_collision(current_q, self.robot_interface):
                     return False
-                
+
             return True
 
         def is_in_collision(self, current_q: np.ndarray) -> bool:
@@ -466,9 +461,9 @@ class RRTStarPlanner:
             """
             for obstacle in self.obstacles:
                 if self.is_in_obstacle(current_q, obstacle, self.robot_interface):
-                     return True
+                    return True
             return False
-        
+
         def is_in_obstacle(self, current_q: np.ndarray, obstacle, robot_interface: RobotInterface) -> bool:
             """Check if the given configuration is in collision with a specific obstacle.
             Args:
@@ -478,7 +473,7 @@ class RRTStarPlanner:
             Returns:
                 bool: True if in collision with the obstacle, False otherwise.
             """
-            
+
             # TODO: Implement collision checking logic here
-            
+
             pass

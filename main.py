@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from configs.aruco_config import aruco_config
 from src.core.helpers import visualize_homography, project_homography, draw_3d_frame
 
+
 def main(args):
     tty_dev = None if args.local else "/dev/mars"
     if args.robot == "CRS97":
@@ -17,7 +18,7 @@ def main(args):
     elif args.robot == "CRS93":
         robot = RobotInterface(CRS93(tty_dev=tty_dev))
     if not args.local:
-        robot.initialize(home = (args.home))
+        robot.initialize(home=(args.home))
         robot.soft_home()
         if args.calibrate_camera:
             robot.calibrate_camera()
@@ -85,10 +86,6 @@ if __name__ == "__main__":
         help="Calibrate camera after initialization",
     )
 
-    parser.add_argument(
-        "--maze",
-        type=str,
-        help="Maze configuration"
-    )
+    parser.add_argument("--maze", type=str, help="Maze configuration")
     args = parser.parse_args()
     main(args)

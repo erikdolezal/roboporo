@@ -114,23 +114,40 @@ class Obstacle:
             # Normalize tangent
             tangent = tangent / np.linalg.norm(tangent)
 
-            # Create rotation matrix with tangent as x-axis
-            z_axis = tangent
+            # Create rotation matrix with tangent as z-axis
+            z_axis = -tangent
 
-            # Choose arbitrary perpendicular vector for y-axis
-            x_axis = np.cross(z_axis, [0, 1, 0])
+            # Choose arbitrary perpendicular vector for y-axis, handle singularity
+            if np.allclose(np.abs(z_axis), [0, 1, 0]):
+                # Tangent is parallel to Y-axis, use Z-axis for cross product
+                x_axis = np.cross(z_axis, [0, 0, 1])
+            else:
+                # Default case
+                x_axis = np.cross(z_axis, [0, 1, 0])
+
+            # Check for zero vector in case of unforeseen issues
+            if np.linalg.norm(x_axis) < 1e-6:
+                # If still a problem, use a fallback (e.g., world X-axis)
+                x_axis = np.cross(z_axis, [1, 0, 0])
 
             x_axis = x_axis / np.linalg.norm(x_axis)
 
             # Complete the orthonormal basis
-            y_axis = np.cross(x_axis, z_axis)
+            y_axis = np.cross(z_axis, x_axis)  # Swapped order to ensure right-handed system
 
             # Create rotation matrix
             rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
-            rotation_matrix *= np.linalg.det(rotation_matrix)
-            # print(f"rot: {rotation_matrix}, det {np.linalg.det(rotation_matrix)}")
+
+            # Ensure it's a valid rotation matrix (handle potential floating point inaccuracies)
+            if np.linalg.det(rotation_matrix) < 0:
+                # Flip one axis to correct the handedness
+                x_axis = -x_axis
+                rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
+
+            # print(f"Rotation matrix at waypoint {i}:\n{rotation_matrix}\n")
 
             # Create SE3 transformation
+
             se3 = SE3(translation=position, rotation=SO3(rotation_matrix))
             se3_list.append(se3)
 

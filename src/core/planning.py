@@ -96,7 +96,7 @@ class PathFollowingPlanner:
                     ik_sols_all.append(ik_sols)
 
             if len(ik_sols_all) == 0:
-                raise ValueError(f"No IK solution found for waypoint {waypoint_idx} at {waypoint.translation}. og rot: {waypoint.rotation.get_rotations_around_axes()}")
+                raise ValueError(f"No IK solution found for waypoint {waypoint_idx} at {waypoint}")
 
             # Combine all solutions and filter by joint limits
             ik_sols_combined = np.vstack(ik_sols_all)
@@ -104,7 +104,7 @@ class PathFollowingPlanner:
             ik_sols_filtered = ik_sols_combined[ik_sols_mask]
 
             if len(ik_sols_filtered) == 0:
-                raise ValueError(f"No valid IK solution within joint limits for waypoint at {waypoint.translation}.")
+                raise ValueError(f"No valid IK solution within joint limits for waypoint {waypoint_idx} at {waypoint}.")
 
             all_ik_solutions.append(ik_sols_filtered)
 
@@ -150,7 +150,7 @@ class PathFollowingPlanner:
 
                     current_cost = (
                         1 * np.linalg.norm(candidate_q - prev_q) ** 2
-                        + 0.2 * np.sum(np.maximum(0, self.Z_LIMIT * 2 - T_pose.translation[2]))
+                        + 1 * np.sum(np.maximum(0, self.Z_LIMIT * 2 - T_pose.translation[2]))
                         + 0.2 * np.linalg.norm(candidate_q[-2:] - (self.robot_interface.q_max[-2:] + self.robot_interface.q_min[-2:]) / 2)
                         + 1 * (-dot_prod)
                     )

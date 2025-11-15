@@ -17,14 +17,10 @@ from src.core.so3 import SO3
 class SE3:
     """Transformation in 2D that is composed of rotation and translation."""
 
-    def __init__(
-        self, translation: ArrayLike | None = None, rotation: SO3 | None = None
-    ) -> None:
+    def __init__(self, translation: ArrayLike | None = None, rotation: SO3 | None = None) -> None:
         """Crete an SE3 transformation. Identity is the default."""
         super().__init__()
-        self.translation = (
-            np.asarray(translation) if translation is not None else np.zeros(3)
-        )
+        self.translation = np.asarray(translation) if translation is not None else np.zeros(3)
         self.rotation = rotation if rotation is not None else SO3()
         assert self.translation.shape == (3,)
 
@@ -64,7 +60,7 @@ class SE3:
         h[:3, :3] = self.rotation.rot
         h[:3, 3] = self.translation
         return h
-    
+
     def from_homogeneous(self, H):
 
         ret = SE3()
@@ -74,10 +70,7 @@ class SE3:
 
     def __eq__(self, other: SE3) -> bool:
         """Returns true if two transformations are almost equal."""
-        return (
-            np.allclose(self.translation, other.translation)
-            and self.rotation == other.rotation
-        )
+        return np.allclose(self.translation, other.translation) and self.rotation == other.rotation
 
     def __hash__(self):
         return id(self)

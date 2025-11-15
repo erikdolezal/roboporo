@@ -140,7 +140,7 @@ class PathFollowingPlanner:
                     hoop_pose = self.robot_interface.hoop_fk(candidate_q)
                     hoop_x_axis = hoop_pose.rotation.rot[:, 0]
                     # The direction "toward me" (World +X)
-                    me_vector = np.array([1, 0, 0])
+                    me_vector = np.array([1, 0, -5])
                     # Calculate the dot product
                     # +1 = facing me (good)
                     # -1 = facing away (bad)
@@ -149,9 +149,10 @@ class PathFollowingPlanner:
                     dot_prod = np.dot(hoop_x_axis, me_vector)
 
                     current_cost = (
-                        1 * np.linalg.norm(candidate_q - prev_q) ** 2
+                        7 * np.linalg.norm(candidate_q - prev_q) ** 2
                         + 1 * np.sum(np.maximum(0, self.Z_LIMIT * 2 - T_pose.translation[2]))
                         + 0.2 * np.linalg.norm(candidate_q[-2:] - (self.robot_interface.q_max[-2:] + self.robot_interface.q_min[-2:]) / 2)
+                        + 1 * candidate_q[0]**2
                         + 1 * (-dot_prod)
                     )
 

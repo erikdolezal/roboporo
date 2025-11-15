@@ -148,7 +148,7 @@ class SO3:
         """
         # todo: HW1opt: implement from euler angles
         R = SO3()
-        for i in range(3):
+        for i in range(len(seq)):
             if seq[i] == "x":
                 R = R * SO3.rx(angles[i])
             elif seq[i] == "y":

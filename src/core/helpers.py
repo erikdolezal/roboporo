@@ -40,8 +40,7 @@ def visualize_homography(img, H: np.ndarray, real_positions=None, draw_extra=Non
 
     ax[1].imshow(warped, extent=(xmin, xmax, ymin, ymax), origin='lower')
     if real_positions is not None:
-        positions = np.array([x["translation_vector"][:2] for x in real_positions])
-        ax[1].plot(*positions.T, '.', c="red")
+        ax[1].plot(*real_positions.T, '.', c="red")
     ax[1].axis('equal')
     ax[1].grid()
     ax[1].set_title("Transformed Image")

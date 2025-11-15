@@ -85,7 +85,7 @@ class RobotInterface:
     def calibrate_camera(self):
         x_positions = np.arange(0.35, 0.56, 0.05)
         y_positions = np.arange(-0.2, 0.21, 0.05)
-        target_positions = np.array([[x, y, 0.05] for x in x_positions for y in y_positions])
+        target_positions = np.array([[x, y, 0.045] for x in x_positions for y in y_positions])
         images = []
         real_positions = []
         for pos in target_positions:
@@ -99,7 +99,7 @@ class RobotInterface:
 
         self.camera2robot_H = find_hoop_homography(images, real_positions)
         print("Computed homography:\n", self.camera2robot_H)
-        visualize_homography(images[0], self.camera2robot_H, real_positions=real_positions)
+        visualize_homography(images[0], self.camera2robot_H, real_positions=np.array([x["translation_vector"][:2] for x in real_positions]))
         np.save("camera2robot_H.npy", self.camera2robot_H)
 
     def get_maze_position(self):
@@ -112,9 +112,10 @@ class RobotInterface:
         detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
         # Detect the markers
         corners, ids, _ = detector.detectMarkers(gray_img)   
+        assert ids is not None, "No aruco found" 
 
         target_corners = np.array([project_homography(self.camera2robot_H, corner_set[0]) for corner_set in corners]).reshape(-1, 2)
-        target_corners = np.hstack((target_corners, 0.05*np.ones((target_corners.shape[0], 1))))
+        target_corners = np.hstack((target_corners, 0.04*np.ones((target_corners.shape[0], 1))))
 
         aruco_corners = np.array([aruco_config[id[0]]["corners"] for id in ids]).reshape(-1, 3) if ids is not None else np.array([[]])
 
@@ -136,6 +137,8 @@ class RobotInterface:
 
         maze_pose = SE3(translation=t, rotation=SO3(R))
 
+        aligned_aruco_positions = np.array([aruco_config[id]["corners"] for id in [1, 2]]).reshape(-1,3) @ R.T + t[None, :]
+
         def draw_extra(ax):
             ax[1].plot([t[0], t[0]+0.05*R[0,0]], [t[1], t[1]+0.05*R[1,0]], c='r')
             ax[1].plot([t[0], t[0]+0.05*R[0,1]], [t[1], t[1]+0.05*R[1,1]], c='g')
@@ -144,9 +147,9 @@ class RobotInterface:
             cv2.aruco.drawDetectedMarkers(img, corners, ids)
             cv2.circle(img, center=project_homography(np.linalg.inv(self.camera2robot_H), maze_pose.translation[None, :2]).astype(int)[0], radius=50, color=(0, 255, 0), thickness=2)
         print(maze_pose)
-        visualize_homography(img, self.camera2robot_H, draw_extra=draw_extra)
+        visualize_homography(img, self.camera2robot_H, draw_extra=draw_extra, real_positions=aligned_aruco_positions[:,:2])
     
-        return maze_pose
+        return maze_pose * SE3(rotation=SO3().from_euler_angles(np.array([np.pi/2]), "z"), translation=np.zeros(3))
 
         
 

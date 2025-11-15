@@ -221,6 +221,8 @@ class Obstacle:
             path_to_file = os.path.join(self.path, f"{self.type}_centerline.npy")
             self.line_raw = np.load(path_to_file)
             self.line_raw = self.line_raw.astype(np.float64) / 1000.0  # Convert mm to m
+        if self.line_raw[0,2] < self.line_raw[-1,2]:
+            self.line_raw = self.line_raw[::-1]
 
     def crop_centerline_z(self) -> None:
         """Crop the centerline based on start and end distances."""

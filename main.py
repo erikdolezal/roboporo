@@ -30,6 +30,19 @@ def main(args):
             planner = PathFollowingPlanner(robot, maze_waypoints, robot.hoop_ik)
             best_q_list = planner.get_list_of_best_q()
 
+            fig = plt.figure(figsize=(8,8), layout="tight")
+            ax = fig.add_subplot(111, projection='3d')
+            ax.view_init(elev=40., azim=-150)
+            
+            for q in best_q_list:
+                T = robot.hoop_fk(q)
+                draw_3d_frame(ax, T.rotation.rot, T.translation, scale=0.02)
+            ax.set_aspect('equal')  
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+            ax.set_zlabel("z")
+            plt.show()
+
             robot.follow_q_list(best_q_list)
 
             robot.follow_q_list(best_q_list[::-1])

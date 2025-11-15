@@ -13,10 +13,10 @@ from src.core.helpers import visualize_homography, project_homography, draw_3d_f
 
 if __name__ == "__main__":
     robot = RobotInterface(CRS97(tty_dev=None))
-    maze_position = SE3(translation=np.array([0.35, -0.09, 0.05]))
+    maze_position = SE3(translation=np.array([0.35, 0.2, 0.05]))
     obstacle = Obstacle("B", "src/tools/models", maze_position, num_waypoints=15)
     obstacle.prep_obstacle()
-    maze_waypoints = obstacle.waypoints
+    maze_waypoints = obstacle.waypoints[::-1]
 
     # Michals stupid optimizer
 
@@ -37,9 +37,11 @@ if __name__ == "__main__":
     ax.set_zlabel("z")
     plt.show()
 
-    print("Starting Michal's HoopPathOptimizer...")
+    print("Starting Michal's HoopPathOptimizer...")  # take down max_iter if it takes too long
     planner = HoopPathOptimizer(robot, maze_waypoints, robot.hoop_fk, robot.fk, init_q_list, max_iter=50)
     best_q_list = planner.get_list_of_best_q()
+
+    print(best_q_list)
 
     fig = plt.figure(figsize=(8, 8), layout="tight")
     ax = fig.add_subplot(111, projection="3d")

@@ -27,15 +27,13 @@ class HoopPathOptimizer:
         # --- Optimization Weights (TUNE THESE!) ---
         self.W_POS = 200.0  # Must be high
         self.W_MOVE = 1.0  # Smoothness
-        self.W_PENALTY = 0.1  # Hoop orientation
+        self.W_PENALTY = 1.0  # Hoop orientation
         self.W_ORTHO = 10.0  # Orthogonality to z-axis for last two waypoints
 
         # --- Constraints ---
         self.TABLE_Z_MIN = 0.06
         self.TANGENT_MAX_ANGLE_RAD = np.radians(20.0)
         self.TANGENT_MIN_DOT_PROD = np.cos(self.TANGENT_MAX_ANGLE_RAD)
-
-        self.AXIS_MIN_DOT_PROD = [0, 1, 0]
 
     def _unpack_X(self, X: np.ndarray) -> np.ndarray:
         """Helper to reshape the flat 1D variable array into a 2D array."""
@@ -65,15 +63,17 @@ class HoopPathOptimizer:
             #!!!change to penalize specic q positions!!!
 
             # --- Cost 2: "Hoop Facing Away" Penalty ---
-            hoop_y_axis = T_pose.rotation.rot[:, 1]
+            hoop_x_axis = T_pose.rotation.rot[:, 0]
             # The direction "toward me" (World +X)
             me_vector = np.array([1, 0, 0])
             # Calculate the dot product
             # +1 = facing me (good)
             # -1 = facing away (bad)
-            dot_prod = np.dot(hoop_y_axis, me_vector)
+            dot_prod = np.dot(hoop_x_axis, me_vector)
             # The optimizer minimizes, so we want to minimize (-dot_prod)
             # This maximizes the dot product.
+
+            # find out whether to put + or - sign !!!!!
             total_cost += self.W_PENALTY * (-dot_prod)
 
             # --- Cost 3: Joint Movement (Smoothness) ---

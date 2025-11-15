@@ -54,6 +54,7 @@ class PathFollowingPlanner:
         self.q_max = robot_interface.q_max
         self.q_min = robot_interface.q_min
         self.ik_func = ik_func
+        self.Z_LIMIT = 0.06
 
     def get_list_of_best_q(self) -> np.ndarray:
         """Get list of joint configurations for the waypoints.
@@ -78,14 +79,14 @@ class PathFollowingPlanner:
             ik_sols_all = []
 
             # Try different rotations around the x-axis (tangent direction)
-            num_rotations = 8  # Sample 8 different orientations around the tangent
+            num_rotations = 16
             for angle in np.linspace(0, 2 * np.pi, num_rotations, endpoint=False):
-                print(angle)
+                # print(angle)
                 # Rotate around x-axis (tangent direction)
                 rot_around_tangent = SO3.from_angle_axis(angle, np.array([0, 0, 1]))
                 modified_waypoint = SE3(translation=waypoint.translation, rotation=waypoint.rotation * rot_around_tangent)
 
-                print(modified_waypoint)
+                # print(modified_waypoint)
 
                 ik_sols = np.asarray(self.ik_func(modified_waypoint))
                 if len(ik_sols) > 0:
@@ -126,19 +127,40 @@ class PathFollowingPlanner:
 
                 # add penalization for configurations that put loop under arm
 
-                min_dist = np.inf
+                min_current_cost = np.inf
                 best_q = None
 
                 for candidate_q in all_ik_solutions[i]:
 
-                    if SE3().from_homogeneous(self.robot_interface.fk(candidate_q)).translation[2] < 0.06:
-                        continue
-                    # Calculate distance in configuration space
-                    dist = np.linalg.norm(candidate_q - prev_q)
+                    T_pose = SE3().from_homogeneous(self.robot_interface.fk(candidate_q))
 
-                    if dist < min_dist:
-                        min_dist = dist
+                    if T_pose.translation[2] < self.Z_LIMIT:
+                        continue
+                    # Calculate distance in configuration space and penalize certain q values
+                    hoop_pose = self.robot_interface.hoop_fk(candidate_q)
+                    hoop_x_axis = hoop_pose.rotation.rot[:, 0]
+                    # The direction "toward me" (World +X)
+                    me_vector = np.array([1, 0, 0])
+                    # Calculate the dot product
+                    # +1 = facing me (good)
+                    # -1 = facing away (bad)
+
+                    # find out whether to put + or - sign !!!!!
+                    dot_prod = np.dot(hoop_x_axis, me_vector)
+
+                    current_cost = (
+                        1 * np.linalg.norm(candidate_q - prev_q) ** 2
+                        + 0.2 * np.sum(np.maximum(0, self.Z_LIMIT * 2 - T_pose.translation[2]))
+                        + 0.2 * np.linalg.norm(candidate_q[-2:] - (self.robot_interface.q_max[-2:] + self.robot_interface.q_min[-2:]) / 2)
+                        + 1 * (-dot_prod)
+                    )
+
+                    # insert the bad que value instead of the middle value
+
+                    if current_cost < min_current_cost:
+                        min_current_cost = current_cost
                         best_q = candidate_q
+                        # print(f"Hoop X-axis alignment with World +X: {dot_prod:.4f}")
 
                 if best_q is None:
                     # No valid configuration found for this waypoint
@@ -146,7 +168,7 @@ class PathFollowingPlanner:
                     break
 
                 q_list.append(best_q)
-                total_cost += min_dist
+                total_cost += min_current_cost
 
             # If we found a valid path through all waypoints
             if valid_path and total_cost < best_total_cost:

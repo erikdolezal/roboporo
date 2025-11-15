@@ -47,7 +47,7 @@ class Planning:
 
 
 class PathFollowingPlanner:
-    def __init__(self, robot_interface: RobotInterface, waypoints: list, ik_func, planning_params: dict = {}):
+    def __init__(self, robot_interface: RobotInterface, waypoints: list[SE3], ik_func, planning_params: dict = {}):
         self.robot_interface = robot_interface
         self.planning_params = planning_params
         self.waypoints = waypoints
@@ -78,11 +78,11 @@ class PathFollowingPlanner:
             # Generate multiple orientations around the tangent axis
             ik_sols_all = []
 
-            # Try different rotations around the x-axis (tangent direction)
+            # Try different rotations around the z-axis (tangent direction)
             num_rotations = 16
             for angle in np.linspace(0, 2 * np.pi, num_rotations, endpoint=False):
                 # print(angle)
-                # Rotate around x-axis (tangent direction)
+                # Rotate around z-axis (tangent direction)
                 rot_around_tangent = SO3.from_angle_axis(angle, np.array([0, 0, 1]))
                 modified_waypoint = SE3(translation=waypoint.translation, rotation=waypoint.rotation * rot_around_tangent)
 
@@ -96,7 +96,7 @@ class PathFollowingPlanner:
                     ik_sols_all.append(ik_sols)
 
             if len(ik_sols_all) == 0:
-                raise ValueError(f"No IK solution found for waypoint at {waypoint.translation}.")
+                raise ValueError(f"No IK solution found for waypoint at {waypoint.translation}. rot: {waypoint.rotation.to_angle_axis()}")
 
             # Combine all solutions and filter by joint limits
             ik_sols_combined = np.vstack(ik_sols_all)

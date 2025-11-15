@@ -13,10 +13,10 @@ from src.core.helpers import visualize_homography, project_homography, draw_3d_f
 
 if __name__ == "__main__":
     robot = RobotInterface(CRS97(tty_dev=None))
-    maze_position = SE3(translation=np.array([0.35, 0.2, 0.05]))
-    obstacle = Obstacle("B", "src/tools/models", maze_position, num_waypoints=15)
+    maze_position = SE3(translation=np.array([0.35, 0.2, 0.1]))
+    obstacle = Obstacle("D", "src/tools/models", maze_position, num_waypoints=15)
     obstacle.prep_obstacle()
-    maze_waypoints = obstacle.waypoints[::-1]
+    maze_waypoints = obstacle.waypoints
 
     # Michals stupid optimizer
 

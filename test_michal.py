@@ -7,14 +7,15 @@ from src.core.obstacles import Obstacle
 from src.core.planning_michal import HoopPathOptimizer
 import numpy as np
 from src.core.se3 import SE3
+from src.core.so3 import SO3
 import matplotlib.pyplot as plt
 from src.core.helpers import visualize_homography, project_homography, draw_3d_frame
 
 
 if __name__ == "__main__":
     robot = RobotInterface(CRS97(tty_dev=None))
-    maze_position = SE3(translation=np.array([0.35, 0.2, 0.1]))
-    obstacle = Obstacle("D", "src/tools/models", maze_position, num_waypoints=15)
+    maze_position = SE3(translation=np.array([0.35, -0.2, 0.05]), rotation=SO3.from_euler_angles(np.deg2rad(np.array([0.0, 0.0, 90])), ["x", "y", "z"]))
+    obstacle = Obstacle("B", "src/tools/models", maze_position, num_waypoints=15)
     obstacle.prep_obstacle()
     maze_waypoints = obstacle.waypoints
 

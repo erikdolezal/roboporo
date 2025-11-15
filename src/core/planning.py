@@ -74,7 +74,7 @@ class PathFollowingPlanner:
 
         # Get all IK solutions for each waypoint
         all_ik_solutions = []
-        for waypoint in self.waypoints:
+        for waypoint_idx, waypoint in enumerate(self.waypoints):
             # Generate multiple orientations around the tangent axis
             ik_sols_all = []
 
@@ -96,7 +96,7 @@ class PathFollowingPlanner:
                     ik_sols_all.append(ik_sols)
 
             if len(ik_sols_all) == 0:
-                raise ValueError(f"No IK solution found for waypoint at {waypoint.translation}. rot: {waypoint.rotation.to_angle_axis()}")
+                raise ValueError(f"No IK solution found for waypoint {waypoint_idx} at {waypoint.translation}. og rot: {waypoint.rotation.get_rotations_around_axes()}")
 
             # Combine all solutions and filter by joint limits
             ik_sols_combined = np.vstack(ik_sols_all)

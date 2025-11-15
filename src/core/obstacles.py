@@ -5,10 +5,10 @@ from src.core.so3 import SO3
 from typing import List
 import matplotlib.pyplot as plt
 from src.core.helpers import draw_3d_frame
-
+from src.interface.robot_interface import RobotInterface
 
 class Obstacle:
-    def __init__(self, type: str, path: str, transform: SE3, radius: float = 0.005, start: float = 0.04, end: float = 10.0, num_waypoints: int = 20) -> None:
+    def __init__(self, robot_interface: RobotInterface, type: str, path: str, transform: SE3, start: float = 0.04, end: float = 10.0, num_waypoints: int = 20) -> None:
         self.type = type
         self.path = path
         self.transform = transform
@@ -20,6 +20,10 @@ class Obstacle:
         self.box_offset = np.array([0.1, 0.1, 0.1])
         self.waypoints: List[SE3] = []
         self.num_waypoints = num_waypoints
+        self.robot_interface = robot_interface
+        
+        # Collision detection parameters
+        self.arm_radius = 0.03  # meters
 
     def prep_obstacle(self) -> None:
         """Prepare the obstacle by loading, cropping, transforming, and hiding it in a box."""
@@ -158,9 +162,59 @@ class Obstacle:
         se3_list.insert(0, start_se3)
 
         self.waypoints = se3_list
-
+        
+        
+    def check_arm_colision(self, true_q: np.ndarray) -> bool:
+        """Check if a given waypoint is in collision with the obstacle's box.
+        Args:
+            true_q (np.ndarray): Joint configuration of the robot.
+        Returns:
+            bool: True if in collision, False otherwise.
+            
+        """
+        
+        fk_frames = self.fk_for_all(true_q)
+        for waypoint in self.waypoints:
+            for i in range(len(fk_frames) - 1):
+                frame_A = fk_frames[i]
+                frame_B = fk_frames[i + 1]
+                if self.check_waypoint_in_collision(frame_A, frame_B, waypoint.translation):
+                    return True
+        return False
+        
     # ----------------------Inner-Helper-Functions-----------------------------------------------
+    
+    def check_waypoint_in_collision(self, frame_A: SE3, frame_B: SE3, waypoint: np.ndarray) -> bool:
+        """Check if a given point is in collision with arm's the obstacle's box."""
+        points_on_arm = self.get_arm_points(frame_A, frame_B)
+        for point in points_on_arm:
+            # Check distance to the point
+            distance = np.linalg.norm(point - waypoint)
+            if distance <= self.arm_radius:
+                return True
+        return False
 
+    def get_arm_points(self, frame_A: SE3, frame_B: SE3) -> List[np.ndarray]:
+        """Get points along the arm segment between frame_A and frame_B."""
+        arm_length = np.linalg.norm(frame_B.translation - frame_A.translation)
+        num_points = max(int(arm_length / 0.02), 2)  # Sample every 2 cm, at least 2 points
+        points = []
+        for i in range(num_points + 1):
+            alpha = i / num_points
+            point = (1 - alpha) * frame_A.translation + alpha * frame_B.translation
+            points.append(point)
+        return points
+
+    def fk_for_all(self, q: np.ndarray) -> List[SE3]:
+        """Compute FK for the top part of the robot (up to wrist joint)."""
+        robot = self.robot_interface.robot
+        transformations = []
+        T = np.eye(4)
+        for d, a, alpha, theta in zip(robot.dh_d, robot.dh_a, robot.dh_alpha, q):
+            T = T @ robot.dh_to_se3(d, a, alpha, theta)
+            transformations.append(SE3().from_homogeneous(T))    
+        return transformations
+    
     def open_centerline(self) -> None:
         """Open the centerline file for the obstacle."""
         if self.line_raw is None:

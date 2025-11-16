@@ -5,7 +5,6 @@ from typing import List, Optional
 from src.core.se3 import SE3
 
 from src.interface.robot_interface import RobotInterface
-from src.core.planning import PathFollowingPlanner
 
 
 class HoopPathOptimizer:
@@ -183,3 +182,25 @@ class HoopPathOptimizer:
         optimized_Q = self._unpack_X(result.x)
 
         return optimized_Q
+
+
+class SmoothingPathOptimizer:
+    """
+    Implements a local "smoothing" optimization logic (Solution 2).
+    """
+
+    def __init__(self, robot_interface: RobotInterface, waypoints: List[SE3], fk_hoop, fk_arm, init_guess: np.ndarray, max_iter: int = 100) -> None:
+        self.robot_interface = robot_interface
+        self.waypoints = waypoints
+        self.fk_hoop = fk_hoop
+        self.fk_end = fk_arm
+        self.init_guess = init_guess
+        self.max_iter = max_iter
+
+    def get_list_of_best_q(self) -> np.ndarray:
+        """
+        Placeholder for smoothing optimizer.
+        Currently just returns the initial guess.
+        """
+        print("SmoothingPathOptimizer is not yet implemented. Returning initial guess.")
+        return self.init_guess

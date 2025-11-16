@@ -1,4 +1,5 @@
 import numpy as np
+import heapq
 from src.core.se3 import SE3
 from src.core.so3 import SO3
 from src.interface.robot_interface import RobotInterface
@@ -6,182 +7,256 @@ from src.core.obstacles import Obstacle
 import yaml
 
 
-class Planning:
-    def __init__(self, robot_interface: RobotInterface, planning_params_path: str, obstacles: list = None):
-        self.robot_interface = robot_interface
-
-        # Load parameters from yaml file
-        self.planning_params = self.load_planning_params(planning_params_path)
-
-        self.obstacles = obstacles if obstacles is not None else []
-
-        self.planner = None
-
-    def load_planning_params(self, planning_params_path: str) -> dict:
-        """Load planning parameters from a YAML file.
-
-        Args:
-            planning_params_path (str): Path to the YAML file containing planning parameters.
-        Returns:
-            dict: A dictionary containing the planning parameters.
-        """
-        with open(planning_params_path, "r") as file:
-            planning_params = yaml.safe_load(file)
-        return planning_params
-
-    def choose_planner(self, planner_type: str):
-        """Choose the planner type.
-
-        Args:
-            planner_type (str): The type of planner to use (e.g., 'RRTStar').
-        """
-        # For now, only RRTStar is implemented
-        if planner_type == "RRTStar":
-            self.planner = RRTStarPlanner(self.robot_interface, self.planning_params)
-            self.planner.set_obstacles(self.obstacles)
-        elif planner_type == "PathFollowing":
-            # Placeholder for PathFollowing planner
-            pass
-        else:
-            raise ValueError(f"Planner type '{planner_type}' not recognized.")
-
-
 class PathFollowingPlanner:
-    def __init__(self, robot_interface: RobotInterface, waypoints: list[SE3], ik_func, planning_params: dict = {}):
+    def __init__(self, robot_interface: RobotInterface, obstacle: Obstacle, waypoints: list[SE3], ik_func):
         self.robot_interface = robot_interface
-        self.planning_params = planning_params
+        self.obstacle = obstacle
         self.waypoints = waypoints
         self.q_max = robot_interface.q_max
         self.q_min = robot_interface.q_min
         self.ik_func = ik_func
-        self.Z_LIMIT = 0.06
+        self.Z_LIMIT = 0.01
 
     def get_list_of_best_q(self) -> np.ndarray:
-        """Get list of joint configurations for the waypoints.
-
-        This function ensures that the robot follows the path without changing
-        configuration (solution branch). Since the end-effector is a loop, only
-        the position and tangent direction matter, not the rotation around the tangent.
-
-        Returns:
-            np.ndarray: Array of joint configurations for each waypoint.
-
-        Raises:
-            ValueError: If no consistent IK solution is found for all waypoints.
+        """
+        Follows the path of waypoints, calculating the best inverse kinematics solution for each.
+        This version uses an iterative refinement approach with an exhaustive initial search.
         """
         if not self.waypoints:
             raise ValueError("No waypoints available.")
 
         # Get all IK solutions for each waypoint
         all_ik_solutions = []
+        tangent_only_ik_solutions = []
         for waypoint_idx, waypoint in enumerate(self.waypoints):
             # Generate multiple orientations around the tangent axis
             ik_sols_all = []
+            ik_sols_tangent_only = []
 
-            # Try different rotations around the z-axis (tangent direction)
-            num_rotations = 16
-            for angle in np.linspace(0, 2 * np.pi, num_rotations, endpoint=False):
-                # print(angle)
-                # Rotate around z-axis (tangent direction)
-                rot_around_tangent = SO3.from_angle_axis(angle, np.array([0, 0, 1]))
-                modified_waypoint = SE3(translation=waypoint.translation, rotation=waypoint.rotation * rot_around_tangent)
+            if waypoint_idx == len(self.waypoints) - 1:
+                # For the last waypoint, only rotate around tangent
+                tilt_angles_deg = [0]
+                roll_angles_deg = [0]
+            else:
+                # For all other waypoints, include tilt and roll
+                tilt_angles_deg = [0, 5, 15, 30]  # Degrees of tilt around Y
+                roll_angles_deg = [0, 5, 15, 30]  # Degrees of roll around X
+            tilt_angles_rad = [np.radians(deg) for deg in tilt_angles_deg]
+            roll_angles_rad = [np.radians(deg) for deg in roll_angles_deg]
 
-                # print(modified_waypoint)
+            for tilt_angle in tilt_angles_rad:
+                for roll_angle in roll_angles_rad:
+                    # Create tilt (Y) and roll (X) rotations
+                    tilt_rotation = SO3.from_angle_axis(tilt_angle, np.array([0, 1, 0]))
+                    roll_rotation = SO3.from_angle_axis(roll_angle, np.array([1, 0, 0]))
 
-                ik_sols = np.asarray(self.ik_func(modified_waypoint))
-                if len(ik_sols) > 0:
-                    ik_sols_mask = np.all(ik_sols < self.robot_interface.q_max, axis=1) & np.all(ik_sols > self.robot_interface.q_min, axis=1)
-                    ik_sols = ik_sols[ik_sols_mask]
-                if len(ik_sols) > 0:
-                    ik_sols_all.append(ik_sols)
+                    # Apply tilt and roll to the base waypoint rotation
+                    tilted_and_rolled_rotation = waypoint.rotation * tilt_rotation * roll_rotation
+
+                    # --- Existing: Rotate around the tangent (local Z-axis) ---
+                    num_rotations = 12
+                    for angle in np.linspace(0, 2 * np.pi, num_rotations, endpoint=False):
+                        # Rotate around z-axis (tangent direction)
+                        rot_around_tangent = SO3.from_angle_axis(angle, np.array([0, 0, 1]))
+
+                        # Apply tangent rotation to the already modified rotation
+                        final_rotation = tilted_and_rolled_rotation * rot_around_tangent
+
+                        modified_waypoint = SE3(translation=waypoint.translation, rotation=final_rotation)
+
+                        ik_sols = np.asarray(self.ik_func(modified_waypoint))
+                        if len(ik_sols) > 0:
+                            ik_sols_mask = np.all(ik_sols < self.robot_interface.q_max, axis=1) & np.all(ik_sols > self.robot_interface.q_min, axis=1)
+                            ik_sols = ik_sols[ik_sols_mask]
+                        if len(ik_sols) > 0:
+                            ik_sols_mask = [not self.obstacle.check_arm_colision(ik_sol) for ik_sol in ik_sols]
+                            ik_sols = ik_sols[ik_sols_mask]
+                        if len(ik_sols) > 0:
+                            if tilt_angle == 0 and roll_angle == 0:
+                                ik_sols_tangent_only.append(ik_sols)
+                            ik_sols_all.append(ik_sols)
 
             if len(ik_sols_all) == 0:
                 raise ValueError(f"No IK solution found for waypoint {waypoint_idx} at {waypoint}")
 
-            # Combine all solutions and filter by joint limits
+            # --- Process and store all solutions (for refinement step) ---
             ik_sols_combined = np.vstack(ik_sols_all)
             ik_sols_mask = np.all(ik_sols_combined < self.robot_interface.q_max, axis=1) & np.all(ik_sols_combined > self.robot_interface.q_min, axis=1)
             ik_sols_filtered = ik_sols_combined[ik_sols_mask]
-
             if len(ik_sols_filtered) == 0:
                 raise ValueError(f"No valid IK solution within joint limits for waypoint {waypoint_idx} at {waypoint}.")
-
             all_ik_solutions.append(ik_sols_filtered)
 
-        # Find the configuration that minimizes total joint displacement
-        best_q_list = None
-        best_total_cost = np.inf
+            # --- Process and store tangent-only solutions (for initial search) ---
+            if len(ik_sols_tangent_only) > 0:
+                ik_sols_tangent_combined = np.vstack(ik_sols_tangent_only)
+                ik_sols_mask = np.all(ik_sols_tangent_combined < self.robot_interface.q_max, axis=1) & np.all(ik_sols_tangent_combined > self.robot_interface.q_min, axis=1)
+                tangent_only_ik_solutions.append(ik_sols_tangent_combined[ik_sols_mask])
+            else:
+                # Fallback to all solutions if no tangent-only solutions are found for this waypoint
+                tangent_only_ik_solutions.append(ik_sols_filtered)
 
-        # Try each IK solution for the first waypoint as a starting configuration
-        for start_idx, start_q in enumerate(all_ik_solutions[0]):
-            # print(f"planning for start_idx {start_idx}/{len(all_ik_solutions[0])}, q: {start_q}")
-            q_list = [start_q]
-            total_cost = 0.0
-            valid_path = True
+        print("done generating ik solutions")
 
-            # For each subsequent waypoint, find the closest IK solution
-            for i in range(1, len(all_ik_solutions)):
-                prev_q = q_list[-1]
+        # --- Iterative Refinement Planner with Exhaustive Initial Search ---
 
-                # Find the IK solution that is closest to the previous configuration
+        def get_transition_cost(candidate_q, prev_q):
+            """Calculates the transition cost from a previous configuration to a candidate."""
+            T_pose = SE3().from_homogeneous(self.robot_interface.fk(candidate_q))
+            # if T_pose.translation[2] < self.Z_LIMIT:
+            #    return np.inf  # Invalid configuration
 
-                # add penalization for configurations that put loop under arm
+            hoop_pose = self.robot_interface.hoop_fk(candidate_q)
+            hoop_x_axis = hoop_pose.rotation.rot[:, 0]
+            me_vector = np.array([1, 0, -3])
+            dot_prod = np.dot(hoop_x_axis, me_vector)
+            # collision_in_path_cost = 1000 if self.obstacle.is_path_viable(prev_q, candidate_q) else 0
 
-                min_current_cost = np.inf
-                best_q = None
+            cost = (
+                50 * np.linalg.norm(candidate_q - prev_q) ** 2
+                + 1 * np.sum(np.maximum(0, self.Z_LIMIT * 2 - T_pose.translation[2]))
+                + 0.1 * np.linalg.norm(candidate_q[-2:] - (self.robot_interface.q_max[-2:] + self.robot_interface.q_min[-2:]) / 2)
+                + 0.5 * (-dot_prod)
+            )
+            return cost
 
-                for candidate_q in all_ik_solutions[i]:
+        # 1. Initialization: Exhaustively find the best coarse path
+        num_initial_points = 6
+        initial_indices = np.linspace(0, len(self.waypoints) - 1, num_initial_points, dtype=int)
 
-                    T_pose = SE3().from_homogeneous(self.robot_interface.fk(candidate_q))
+        # Use only tangent-rotated solutions for the coarse search
+        coarse_ik_solutions = [tangent_only_ik_solutions[i] for i in initial_indices]
 
-                    if T_pose.translation[2] < self.Z_LIMIT:
+        min_total_cost = np.inf
+        best_q_path = []
+
+        # This recursive function will perform a depth-first search through all combinations.
+        def find_best_path_recursive(waypoint_level, current_path, current_cost):
+            nonlocal min_total_cost, best_q_path
+
+            # If we have a complete path, check if it's the best one so far
+            if waypoint_level == len(coarse_ik_solutions):
+                if current_cost < min_total_cost:
+                    min_total_cost = current_cost
+                    best_q_path = list(current_path)  # Make a copy
+                return
+
+            # Pruning: If the current path is already more expensive than the best found so far, stop.
+            if current_cost >= min_total_cost:
+                return
+
+            prev_q = current_path[-1]
+            # Explore all solutions for the current waypoint level
+            for candidate_q in coarse_ik_solutions[waypoint_level]:
+                transition_cost = get_transition_cost(candidate_q, prev_q)
+                if transition_cost == np.inf:
+                    continue
+
+                find_best_path_recursive(waypoint_level + 1, current_path + [candidate_q], current_cost + transition_cost)
+
+        # Start the recursive search for each possible starting configuration
+        print("Starting exhaustive search for the best initial path...")
+        for q_start in coarse_ik_solutions[0]:
+            # The "cost" to start is 0, as there's no transition.
+            find_best_path_recursive(1, [q_start], 0.0)
+
+        if not best_q_path:
+            raise ValueError("Exhaustive search failed to find any valid initial path.")
+
+        print(f"Optimal coarse path found with cost: {min_total_cost}")
+        q_path = best_q_path
+        path_indices = list(initial_indices)
+
+        # 2. Iterative Refinement Loop
+        while len(q_path) < len(self.waypoints):
+            new_indices_to_add = []
+            for i in range(len(path_indices) - 1):
+                mid_index = (path_indices[i] + path_indices[i + 1]) // 2
+                if mid_index > path_indices[i] and mid_index < path_indices[i + 1]:
+                    new_indices_to_add.append((i + 1, mid_index))
+
+            if not new_indices_to_add:
+                break  # No more points to add
+
+            new_indices_to_add.sort(key=lambda x: x[0], reverse=True)
+
+            for insert_pos, waypoint_idx in new_indices_to_add:
+                prev_q = q_path[insert_pos - 1]
+                next_q = q_path[insert_pos]
+                candidate_qs = all_ik_solutions[waypoint_idx]
+
+                min_total_segment_cost = np.inf
+                best_q_for_midpoint = None
+                for q_mid in candidate_qs:
+                    cost1 = get_transition_cost(q_mid, prev_q)
+                    cost2 = get_transition_cost(next_q, q_mid)
+                    if cost1 == np.inf or cost2 == np.inf:
                         continue
-                    # Calculate distance in configuration space and penalize certain q values
-                    hoop_pose = self.robot_interface.hoop_fk(candidate_q)
-                    hoop_x_axis = hoop_pose.rotation.rot[:, 0]
-                    # The direction "toward me" (World +X)
-                    me_vector = np.array([1, 0, -5])
-                    # Calculate the dot product
-                    # +1 = facing me (good)
-                    # -1 = facing away (bad)
+                    total_segment_cost = cost1 + cost2
+                    if total_segment_cost < min_total_segment_cost:
+                        min_total_segment_cost = total_segment_cost
+                        best_q_for_midpoint = q_mid
 
-                    # find out whether to put + or - sign !!!!!
-                    dot_prod = np.dot(hoop_x_axis, me_vector)
+                if best_q_for_midpoint is None:
+                    # Fallback if no valid mid-point is found
+                    costs = [get_transition_cost(q, prev_q) for q in candidate_qs]
+                    best_q_for_midpoint = candidate_qs[np.argmin(costs)]
 
-                    current_cost = (
-                        7 * np.linalg.norm(candidate_q - prev_q) ** 2
-                        + 1 * np.sum(np.maximum(0, self.Z_LIMIT * 2 - T_pose.translation[2]))
-                        + 0.2 * np.linalg.norm(candidate_q[-2:] - (self.robot_interface.q_max[-2:] + self.robot_interface.q_min[-2:]) / 2)
-                        + 1 * candidate_q[0]**2
-                        + 1 * (-dot_prod)
-                    )
+                q_path.insert(insert_pos, best_q_for_midpoint)
+                path_indices.insert(insert_pos, waypoint_idx)
 
-                    # insert the bad que value instead of the middle value
+            print(f"Refined path. New length: {len(q_path)}")
 
-                    if current_cost < min_current_cost:
-                        min_current_cost = current_cost
-                        best_q = candidate_q
-                        # print(f"Hoop X-axis alignment with World +X: {dot_prod:.4f}")
+        # 3. Path Smoothing
+        num_smoothing_iterations = 5
+        print("Starting path smoothing...")
+        for iter_num in range(num_smoothing_iterations):
+            # Iterate backwards through the path, from the last point to the first
+            for i in range(len(q_path) - 1, -1, -1):
+                waypoint_idx = path_indices[i]
+                candidate_qs = all_ik_solutions[waypoint_idx]
+                min_total_segment_cost = np.inf
+                best_q_for_point = q_path[i]  # Keep original if no better is found
 
-                if best_q is None:
-                    # No valid configuration found for this waypoint
-                    valid_path = False
-                    break
+                if i == 0:
+                    # First point: only consider cost to the next point
+                    next_q = q_path[i + 1]
+                    for q_mid in candidate_qs:
+                        # The cost function for the start has no "prev_q"
+                        cost = get_transition_cost(next_q, q_mid)
+                        if cost < min_total_segment_cost:
+                            min_total_segment_cost = cost
+                            best_q_for_point = q_mid
+                elif i == len(q_path) - 1:
+                    # Last point: only consider cost from the previous point
+                    prev_q = q_path[i - 1]
+                    for q_mid in candidate_qs:
+                        cost = get_transition_cost(q_mid, prev_q)
+                        if cost < min_total_segment_cost:
+                            min_total_segment_cost = cost
+                            best_q_for_point = q_mid
+                else:
+                    # Intermediate point: consider cost from previous and to next
+                    prev_q = q_path[i - 1]
+                    next_q = q_path[i + 1]
+                    for q_mid in candidate_qs:
+                        cost1 = get_transition_cost(q_mid, prev_q)
+                        cost2 = get_transition_cost(next_q, q_mid)
 
-                q_list.append(best_q)
-                total_cost += min_current_cost
+                        if cost1 == np.inf or cost2 == np.inf:
+                            continue
 
-            # If we found a valid path through all waypoints
-            if valid_path and total_cost < best_total_cost:
-                best_total_cost = total_cost
-                best_q_list = q_list
-                print(f"  -> Found better path with cost: {best_total_cost:.4f}")
+                        total_segment_cost = cost1 + cost2
+                        if total_segment_cost < min_total_segment_cost:
+                            min_total_segment_cost = total_segment_cost
+                            best_q_for_point = q_mid
 
-        if best_q_list is None:
-            raise ValueError("No consistent configuration found for all waypoints.")
+                # Update the path with the best configuration found for this point
+                q_path[i] = best_q_for_point
+            print(f"  -> Smoothing iteration {iter_num + 1}/{num_smoothing_iterations} complete.")
 
-        print(f"Best path found with total cost: {best_total_cost:.4f}")
-        return np.array(best_q_list)
+        print(f"Final path found with {len(q_path)} points after smoothing.")
+        return np.array(q_path)
 
     def _is_within_limits(self, q: np.ndarray) -> bool:
         """Check if configuration is within joint limits.
@@ -196,310 +271,3 @@ class PathFollowingPlanner:
             if q[i] < self.q_min[i] or q[i] > self.q_max[i]:
                 return False
         return True
-
-
-class RRTStarPlanner:
-    def __init__(self, robot_interface: RobotInterface, planning_params: dict):
-        self.robot_interface = robot_interface
-        self.planning_params = planning_params
-        self.obstacles = []
-        # C-space requires joint limits; expect them in planning_params
-        joint_limits = planning_params.get("joint_limits", None)
-        self.c_space = self.CSpace(robot_interface, joint_limits)
-
-        self.tree_root = None
-        self.tree_goal = None
-        # list of Node objects (will initialize with root in plan())
-        self.tree_nodes = []
-
-    def plan(self, start: np.ndarray, goal: np.ndarray) -> np.ndarray:
-        self.tree_root = self.Node(q=start)
-        self.tree_goal = self.Node(q=goal)
-        # initialize tree
-        self.tree_root.parent = None
-        self.tree_root.cost = 0.0
-        self.tree_nodes = [self.tree_root]
-
-        # best goal tracking (RRT* will improve cost over time)
-        best_goal_node = None
-        best_goal_cost = np.inf
-
-        # Check if start and goal are connected directly
-        if self.collision_free_edge(start, goal):
-            self.tree_goal.parent = self.tree_root
-            self.tree_goal.cost = np.linalg.norm(goal - start)
-            self.tree_nodes.append(self.tree_goal)
-            return self.get_path()
-
-        # RRT* main loop
-        for _ in range(self.planning_params["rrt"]["max_iterations"]):
-            # Sample a random configuration
-            q_rand = self.sample_random_configuration()
-
-            # Find the nearest node in the trees
-            nearest_node = self.find_nearest_node(q_rand)
-
-            # If the tree is empty or no nearest found, skip this sample
-            if nearest_node is None:
-                continue
-
-            # Steer from the nearest node towards the random configuration
-            new_node = self.steer(nearest_node, q_rand)
-
-            if not self.collision_free_edge(nearest_node.q, new_node.q):
-                continue
-
-            neighbor_radius = self.planning_params.get("rrt", {}).get("neighbor_radius", None)
-            if neighbor_radius is None:
-                # default dynamic radius: gamma * (log(n)/n)^(1/d)
-                n = max(1, len(self.tree_nodes))
-                d = float(len(start)) if start is not None else 1.0
-                gamma = float(self.planning_params.get("rrt", {}).get("rrt_star_gamma", 1.5))
-                neighbor_radius = gamma * (np.log(n + 1) / (n + 1)) ** (1.0 / d)
-
-            neighbors = self.find_neighbors(new_node.q, neighbor_radius)
-
-            # Choose best parent among neighbors (including nearest)
-            candidate_parents = neighbors.copy()
-            if nearest_node not in candidate_parents:
-                candidate_parents.append(nearest_node)
-
-            best_parent = nearest_node
-            best_cost = nearest_node.cost + np.linalg.norm(new_node.q - nearest_node.q)
-            for p in candidate_parents:
-                if not self.collision_free_edge(p.q, new_node.q):
-                    continue
-                cost_through_p = p.cost + np.linalg.norm(p.q - new_node.q)
-                if cost_through_p < best_cost:
-                    best_cost = cost_through_p
-                    best_parent = p
-
-            new_node.parent = best_parent
-            new_node.cost = best_cost
-            self.tree_nodes.append(new_node)
-
-            # Rewire neighbors through new_node if it reduces cost
-            for nbr in neighbors:
-                if nbr is new_node or nbr is best_parent:
-                    continue
-                if not self.collision_free_edge(new_node.q, nbr.q):
-                    continue
-                new_cost = new_node.cost + np.linalg.norm(new_node.q - nbr.q)
-                if new_cost < nbr.cost:
-                    nbr.parent = new_node
-                    self._update_subtree_costs(nbr)
-
-            # Goal check: try to connect new_node to goal
-            dist_to_goal = np.linalg.norm(new_node.q - goal)
-            if dist_to_goal < self.planning_params.get("rrt", {}).get("goal_tolerance", 1e-3):
-                if self.collision_free_edge(new_node.q, goal):
-                    goal_cost = new_node.cost + dist_to_goal
-                    if goal_cost < best_goal_cost:
-                        best_goal_cost = goal_cost
-                        best_goal_node = new_node
-
-        # attach best goal if found
-        if best_goal_node is not None:
-            self.tree_goal.parent = best_goal_node
-            self.tree_goal.cost = best_goal_cost
-            self.tree_nodes.append(self.tree_goal)
-        else:
-            # No feasible goal connection found
-            pass
-
-        return self.get_path()
-
-    def get_path(self) -> np.ndarray:
-        """Retrieve the planned path from start to goal.
-        Returns:
-           path (np.ndarray): The planned path as an array of configurations.
-        """
-        path = []
-        current_node = self.tree_goal
-        while current_node is not None:
-            path.append(current_node.q)
-            current_node = current_node.parent
-        path.reverse()
-        return np.array(path)
-
-    def steer(self, from_node: "RRTStarPlanner.Node", to_q: np.ndarray) -> "RRTStarPlanner.Node":
-        """Steers the branch from a tree node in direction of chosen node
-
-        Args:
-            from_node (RRTPlanner.Node): The node to steer from.
-            to_q (np.ndarray): The target configuration to steer towards.
-
-        Returns:
-            RRTPlanner.Node: The new node created by steering.
-        """
-        vec = to_q - from_node.q
-        norm = np.linalg.norm(vec)
-        if norm <= 0.0:
-            return self.Node(parent=from_node, q=from_node.q.copy(), cost=from_node.cost)
-        step = float(self.planning_params.get("rrt", {}).get("step_size", 0.1))
-        direction = (vec / norm) * min(step, norm)
-        new_q = from_node.q + direction
-        new_node = self.Node(parent=from_node, q=new_q, cost=from_node.cost + np.linalg.norm(direction))
-        return new_node
-
-    def find_nearest_node(self, q_rand: np.ndarray) -> "RRTStarPlanner.Node":
-        """Find the nearest node in the tree to the random configuration.
-        Args:
-            q_rand (np.ndarray): The random configuration.
-        Returns:
-            nearest_node (RRTPlanner.Node): The nearest node in the tree.
-        """
-        if not self.tree_nodes:
-            return None
-        # vectorized distance computation for speed
-        q_array = np.vstack([np.atleast_1d(n.q) for n in self.tree_nodes])
-        diffs = q_array - q_rand
-        d2 = np.einsum("ij,ij->i", diffs, diffs)
-        idx = int(np.argmin(d2))
-        return self.tree_nodes[idx]
-
-    def sample_random_configuration(self) -> np.ndarray:
-        """Sample a random configuration within the robot's joint limits.
-
-        Returns:
-            q_rand (np.ndarray): Random configuration.
-        """
-        joint_limits = self.planning_params["joint_limits"]
-        q_rand = np.array([np.random.uniform(low, high) for low, high in joint_limits])
-        return q_rand
-
-    def find_neighbors(self, q: np.ndarray, radius: float):
-        """Return list of nodes within `radius` of q."""
-        if not self.tree_nodes:
-            return []
-        q_array = np.vstack([np.atleast_1d(n.q) for n in self.tree_nodes])
-        diffs = q_array - q
-        d2 = np.einsum("ij,ij->i", diffs, diffs)
-        idxs = np.where(d2 <= radius * radius)[0]
-        return [self.tree_nodes[int(i)] for i in idxs]
-
-    def collision_free_edge(self, q1: np.ndarray, q2: np.ndarray) -> bool:
-        """Check that straight-line interpolation between q1 and q2 is collision-free.
-
-        Samples points along the segment using step size `edge_check_step` (or half
-        of step_size by default).
-        """
-        dist = np.linalg.norm(q2 - q1)
-        if dist == 0.0:
-            return not self.c_space.is_in_c_space(q1)
-        step = float(self.planning_params.get("rrt", {}).get("edge_check_steps", self.planning_params.get("rrt", {}).get("step_size", 0.1)))
-        n_samples = max(1, int(np.ceil(dist / step)))
-        for i in range(1, n_samples + 1):
-            t = i / float(n_samples)
-            q = q1 + t * (q2 - q1)
-            if self.c_space.is_in_c_space(q):
-                return False
-        return True
-
-    def update_subtree_costs(self, root_node):
-        """Update costs for root_node and its descendants after a parent change."""
-        # update root_node cost from its parent
-        if root_node.parent is None:
-            root_node.cost = 0.0
-        else:
-            root_node.cost = root_node.parent.cost + np.linalg.norm(root_node.q - root_node.parent.q)
-
-        # recursively update children
-        children = [n for n in self.tree_nodes if n.parent is root_node]
-        for c in children:
-            self.update_subtree_costs(c)
-
-    def set_obstacles(self, obstacles: list):
-        """Sets the obstacles for the planner.
-        Args:
-            obstacles (List): list of obstacles to set
-        """
-        self.obstacles = obstacles
-
-    def set_number_of_iterations(self, n: int):
-        """Set the number of iterations for the planner.
-
-        Args:
-            n (int): The number of iterations.
-        """
-        self.planning_params["rrt"]["num_iterations"] = n
-
-    def set_step_size(self, step_size: float):
-        """Set the step size for the planner.
-
-        Args:
-            step_size (float): The step size.
-        """
-        self.planning_params["rrt"]["step_size"] = step_size
-
-    def set_goal_tolerance(self, tolerance: float):
-        """Set the goal tolerance for the planner.
-
-        Args:
-            tolerance (float): The goal tolerance.
-        """
-        self.planning_params["rrt"]["goal_tolerance"] = tolerance
-
-    class Node:
-        def __init__(self, parent=None, q=None, cost=0.0):
-            self.parent = parent
-            self.q = q
-            self.cost = cost
-
-    class CSpace:
-        def __init__(self, robot_interface: RobotInterface, joint_limits: np.ndarray):
-            self.robot_interface = robot_interface
-            self.joint_limits = joint_limits
-            self.obstacles = []
-
-        def add_obstacle(self, obstacle):
-            """Adds obstacles to existing ones
-
-            Args:
-                obstacle (List): list of obstacles to add
-            """
-            self.obstacles.extend(obstacle)
-
-        def is_in_c_space(self, current_q: np.ndarray) -> bool:
-            """Check if the given configuration is within the configuration space.
-            Args:
-                current_q (np.ndarray): The configuration to check.
-            Returns:
-                bool: True if in configuration space, False otherwise.
-            """
-
-            for i, (low, high) in enumerate(self.joint_limits):
-                if not (low <= current_q[i] <= high):
-                    return False
-
-            for obstacle in self.obstacles:
-                if obstacle.is_in_collision(current_q, self.robot_interface):
-                    return False
-
-            return True
-
-        def is_in_collision(self, current_q: np.ndarray) -> bool:
-            """Check if the given configuration is in collision.
-            Args:
-                current_q (np.ndarray): The configuration to check.
-            Returns:
-                bool: True if in collision, False otherwise.
-            """
-            for obstacle in self.obstacles:
-                if self.is_in_obstacle(current_q, obstacle, self.robot_interface):
-                    return True
-            return False
-
-        def is_in_obstacle(self, current_q: np.ndarray, obstacle, robot_interface: RobotInterface) -> bool:
-            """Check if the given configuration is in collision with a specific obstacle.
-            Args:
-                current_q (np.ndarray): The configuration to check.
-                obstacle: The obstacle to check against.
-                robot_interface (RobotInterface): The robot interface for kinematics.
-            Returns:
-                bool: True if in collision with the obstacle, False otherwise.
-            """
-
-            # TODO: Implement collision checking logic here
-
-            pass

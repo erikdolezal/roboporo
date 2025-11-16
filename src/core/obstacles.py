@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from src.core.helpers import draw_3d_frame
 from src.interface.robot_interface import RobotInterface
 
+
 class Obstacle:
     def __init__(self, robot_interface: RobotInterface, type: str, path: str, transform: SE3, start: float = 0.04, end: float = 10.0, num_waypoints: int = 20) -> None:
         self.type = type
@@ -21,9 +22,9 @@ class Obstacle:
         self.waypoints: List[SE3] = []
         self.num_waypoints = num_waypoints
         self.robot_interface = robot_interface
-        
+
         # Collision detection parameters
-        self.arm_radius = 0.03  # meters
+        self.arm_radius = 0.12  # meters
 
     def prep_obstacle(self) -> None:
         """Prepare the obstacle by loading, cropping, transforming, and hiding it in a box."""
@@ -162,66 +163,136 @@ class Obstacle:
         se3_list.insert(0, start_se3)
 
         self.waypoints = se3_list
-        
-        
+
     def check_arm_colision(self, true_q: np.ndarray) -> bool:
-        """Check if a given waypoint is in collision with the obstacle's box.
-        Args:
-            true_q (np.ndarray): Joint configuration of the robot.
-        Returns:
-            bool: True if in collision, False otherwise.
-            
         """
-        
+        Check if the robot arm at configuration true_q collides with any of the obstacle's waypoints.
+        The last segment of the arm has a smaller collision radius.
+        """
         fk_frames = self.fk_for_all(true_q)
+        num_segments = len(fk_frames) - 1
+        # print("num_segments:", num_segments)
+
         for waypoint in self.waypoints:
-            for i in range(len(fk_frames) - 1):
+            for i in range(num_segments):
                 frame_A = fk_frames[i]
                 frame_B = fk_frames[i + 1]
-                if self.check_waypoint_in_collision(frame_A, frame_B, waypoint.translation):
+
+                # Use half the radius for the last segment
+                if i == num_segments - 1:
+                    radius = self.arm_radius / 2
+                else:
+                    radius = self.arm_radius
+
+                collision, dist = self.check_segment_to_point_collision(frame_A, frame_B, waypoint.translation, radius)
+                if collision:
+                    # print(f"Collision detected at arm segment {i} with waypoint at {waypoint.translation}")
                     return True
         return False
-        
-    # ----------------------Inner-Helper-Functions-----------------------------------------------
-    
-    def check_waypoint_in_collision(self, frame_A: SE3, frame_B: SE3, waypoint: np.ndarray) -> bool:
-        """Check if a given point is in collision with arm's the obstacle's box."""
-        points_on_arm = self.get_arm_points(frame_A, frame_B)
-        for point in points_on_arm:
-            # Check distance to the point
-            distance = np.linalg.norm(point - waypoint)
-            if distance <= self.arm_radius:
-                return True
-        return False
 
-    def get_arm_points(self, frame_A: SE3, frame_B: SE3) -> List[np.ndarray]:
-        """Get points along the arm segment between frame_A and frame_B."""
-        arm_length = np.linalg.norm(frame_B.translation - frame_A.translation)
-        num_points = max(int(arm_length / 0.02), 2)  # Sample every 2 cm, at least 2 points
-        points = []
-        for i in range(num_points + 1):
-            alpha = i / num_points
-            point = (1 - alpha) * frame_A.translation + alpha * frame_B.translation
-            points.append(point)
-        return points
+    def is_path_viable(self, q_start: np.ndarray, q_end: np.ndarray, num_steps: int = 5) -> bool:
+        """
+        Checks if a straight-line path in joint space between two configurations is collision-free.
+
+        Args:
+            q_start (np.ndarray): The starting joint configuration.
+            q_end (np.ndarray): The ending joint configuration.
+            num_steps (int): The number of intermediate steps to check for collisions.
+
+        Returns:
+            bool: True if the path is viable (collision-free), False otherwise.
+        """
+        # Check the start and end points first as a quick test.
+        if self.check_arm_colision(q_start) or self.check_arm_colision(q_end):
+            return False
+
+        # Interpolate between the start and end configurations.
+        for i in range(1, num_steps):
+            alpha = i / float(num_steps)
+            q_interp = (1 - alpha) * q_start + alpha * q_end
+
+            # Check for collision at the interpolated point.
+            if self.check_arm_colision(q_interp):
+                # Uncomment the line below for debugging to see where collisions occur.
+                # print(f"Collision detected during path viability check at step {i}/{num_steps}")
+                return False
+
+        # If no collisions were found along the path, it is viable.
+        return True
+
+    # ----------------------Inner-Helper-Functions-----------------------------------------------
+
+    def check_segment_to_point_collision(self, frame_A: SE3, frame_B: SE3, point_P: np.ndarray, radius: float) -> tuple[bool, float]:
+        """
+        Calculates the minimum distance between a line segment (A-B) and a point (P).
+        Returns True if the distance is less than or equal to the given radius.
+        """
+        A = frame_A.translation
+        B = frame_B.translation
+
+        # Vector from A to B (the segment)
+        v = B - A
+        # Vector from A to P
+        w = point_P - A
+
+        # Projection of w onto v
+        dot_vv = np.dot(v, v)
+        if dot_vv < 1e-9:  # Segment is a point (A and B are the same)
+            distance = np.linalg.norm(w)
+        else:
+            t = np.dot(w, v) / dot_vv
+
+            # Clamp t to the range [0, 1] to stay on the segment
+            t_clamped = np.maximum(0, np.minimum(1, t))
+
+            # Find the closest point on the segment to P
+            closest_point_on_segment = A + t_clamped * v
+
+            # Calculate the distance
+            distance = np.linalg.norm(point_P - closest_point_on_segment)
+            # print(f"Checking collision between segment ({A}, {B}) and point {point_P}, distance: {distance}, radius: {radius}")
+
+        return bool(distance <= radius), float(distance - radius if distance - radius > 0 else 0.0)
 
     def fk_for_all(self, q: np.ndarray) -> List[SE3]:
-        """Compute FK for the top part of the robot (up to wrist joint)."""
+        """
+        Compute FK for all joints of the robot, starting from the robot's base frame.
+        The first frame in the returned list is the robot's base itself.
+        """
         robot = self.robot_interface.robot
-        transformations = []
+        # Start with the robot's base transformation matrix (assumed identity if at origin).
         T = np.eye(4)
-        for d, a, alpha, theta in zip(robot.dh_d, robot.dh_a, robot.dh_alpha, q):
-            T = T @ robot.dh_to_se3(d, a, alpha, theta)
-            transformations.append(SE3().from_homogeneous(T))    
+        # The first "frame" is the base of the robot.
+        transformations = [SE3().from_homogeneous(T)]
+
+        # The provided q values are the variable joint angles.
+        variable_thetas = q
+
+        # Iterate through the DH parameters for each link.
+        for i in range(len(robot.dh_d)):
+            d = robot.dh_d[i]
+            a = robot.dh_a[i]
+            alpha = robot.dh_alpha[i]
+
+            # The total angle is the fixed DH offset plus the variable joint angle q.
+            theta = robot.dh_offset[i] + variable_thetas[i]
+
+            # Calculate the transformation for the current link, using the correct parameter order.
+            link_transform = robot.dh_to_se3(d, theta, a, alpha)
+
+            # Post-multiply to get the cumulative transformation from the base.
+            T = T @ link_transform
+            transformations.append(SE3().from_homogeneous(T))
+
         return transformations
-    
+
     def open_centerline(self) -> None:
         """Open the centerline file for the obstacle."""
         if self.line_raw is None:
             path_to_file = os.path.join(self.path, f"{self.type}_centerline.npy")
             self.line_raw = np.load(path_to_file)
             self.line_raw = self.line_raw.astype(np.float64) / 1000.0  # Convert mm to m
-        if self.line_raw[0,2] < self.line_raw[-1,2]:
+        if self.line_raw[0, 2] < self.line_raw[-1, 2]:
             self.line_raw = self.line_raw[::-1]
 
     def crop_centerline_z(self) -> None:
@@ -255,3 +326,62 @@ class Obstacle:
         min_coords = np.min(self.line_final, axis=0) - offset
         max_coords = np.max(self.line_final, axis=0) + offset
         self.box = (min_coords, max_coords)
+
+    def visualize_path(self, q_path: np.ndarray) -> None:
+        """
+        Creates a 3D animation of the robot moving through a given path of joint configurations.
+
+        Args:
+            robot_interface (RobotInterface): The robot interface object.
+            obstacle (Obstacle): The obstacle object, used for FK calculations and to draw the obstacle.
+            q_path (np.ndarray): A numpy array where each row is a joint configuration (q) in the path.
+        """
+        fig = plt.figure(figsize=(10, 10))
+        ax = fig.add_subplot(111, projection="3d")
+        plt.ion()  # Turn on interactive mode for animation
+
+        # Plot the obstacle's centerline
+        centerline = self.line_final
+        ax.plot(centerline[:, 0], centerline[:, 1], centerline[:, 2], "r-", label="Obstacle Centerline")
+
+        # Set plot limits based on the obstacle to keep the view consistent
+        min_coords = np.min(centerline, axis=0)
+        max_coords = np.max(centerline, axis=0)
+        ax.set_xlim([min_coords[0] - 0.5, max_coords[0] + 0.5])
+        ax.set_ylim([min_coords[1] - 0.5, max_coords[1] + 0.5])
+        ax.set_zlim([min_coords[2] - 0.5, max_coords[2] + 0.5])
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        ax.set_title("Robot Path Visualization")
+        ax.legend()
+
+        # This list will hold the plot objects for the robot arm so we can remove them each frame
+        robot_lines = []
+
+        for i, q in enumerate(q_path):
+            # Clear the previous robot arm drawing
+            for line in robot_lines:
+                line.remove()
+            robot_lines.clear()
+
+            # Get the 3D coordinates of each joint for the current configuration
+            fk_frames = self.fk_for_all(q)
+            joint_positions = np.array([frame.translation for frame in fk_frames])
+
+            # Draw the robot arm segments
+            for j in range(len(joint_positions) - 1):
+                p1 = joint_positions[j]
+                p2 = joint_positions[j + 1]
+                (line,) = ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], "b-o", linewidth=4, markersize=6)
+                robot_lines.append(line)
+
+            # Update the title to show progress
+            ax.set_title(f"Robot Path Visualization (Step {i+1}/{len(q_path)})")
+
+            # Pause to create the animation effect
+            plt.pause(2)
+
+        ax.set_title("Robot Path Visualization (Finished)")
+        plt.ioff()  # Turn off interactive mode
+        plt.show()

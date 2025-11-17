@@ -2,8 +2,9 @@ import os
 import numpy as np
 from src.core.se3 import SE3
 from src.core.so3 import SO3
-from typing import List
+from typing import List, cast
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 from src.core.helpers import draw_3d_frame
 from src.interface.robot_interface import RobotInterface
 
@@ -35,7 +36,11 @@ class Obstacle:
         self.hide_in_box(offset=self.box_offset)
 
         fig = plt.figure(figsize=(8, 8), layout="tight")
-        ax = fig.add_subplot(111, projection="3d")
+        ax = cast(Axes3D, fig.add_subplot(111, projection="3d"))
+
+        if self.line_final is None:
+            raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
+
         ax.plot(*self.line_final.T)
 
         for wp in self.waypoints:
@@ -52,7 +57,7 @@ class Obstacle:
         if self.box is None:
             raise ValueError("Box not defined. Call hide_in_box() first.")
         min_coords, max_coords = self.box
-        return np.all(point >= min_coords) and np.all(point <= max_coords)
+        return bool(np.all(point >= min_coords) and np.all(point <= max_coords))
 
     def get_centerline(self) -> np.ndarray:
         """Get the transformed centerline points."""
@@ -68,6 +73,7 @@ class Obstacle:
         self.hide_in_box(offset=self.box_offset)
 
     def sample_centerline_points(self, num_points: int = 30) -> list[SE3]:
+        num_points = int(num_points - 1)
         if self.line_final is None:
             raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
 
@@ -89,9 +95,6 @@ class Obstacle:
             # Ensure first and last indices are exact
             indices[0] = 0
             indices[-1] = total_points - 1
-
-        # Sample points
-        sampled_points = self.line_final[indices]
 
         # Create SE3 transformations with tangent directions
         se3_list = []
@@ -163,8 +166,9 @@ class Obstacle:
         se3_list.insert(0, start_se3)
 
         self.waypoints = se3_list
+        return se3_list
 
-    def check_arm_colision(self, true_q: np.ndarray) -> bool:
+    def check_arm_colision(self, true_q: np.ndarray) -> tuple[bool, float]:
         """
         Check if the robot arm at configuration true_q collides with any of the obstacle's waypoints.
         The last segment of the arm has a smaller collision radius.
@@ -172,6 +176,7 @@ class Obstacle:
         fk_frames = self.fk_for_all(true_q)
         num_segments = len(fk_frames) - 1
         # print("num_segments:", num_segments)
+        dists = []
 
         for waypoint in self.waypoints:
             for i in range(num_segments):
@@ -185,10 +190,12 @@ class Obstacle:
                     radius = self.arm_radius
 
                 collision, dist = self.check_segment_to_point_collision(frame_A, frame_B, waypoint.translation, radius)
+                dists.append(dist)
                 if collision:
                     # print(f"Collision detected at arm segment {i} with waypoint at {waypoint.translation}")
-                    return True
-        return False
+                    return True, float(dist)
+
+        return False, float(min(dists))
 
     def is_path_viable(self, q_start: np.ndarray, q_end: np.ndarray, num_steps: int = 5) -> bool:
         """
@@ -237,22 +244,20 @@ class Obstacle:
 
         # Projection of w onto v
         dot_vv = np.dot(v, v)
-        if dot_vv < 1e-9:  # Segment is a point (A and B are the same)
-            distance = np.linalg.norm(w)
-        else:
-            t = np.dot(w, v) / dot_vv
+        if dot_vv < 1e-9:  # Segment is effectively a point
+            return False, float("inf")
 
-            # Clamp t to the range [0, 1] to stay on the segment
-            t_clamped = np.maximum(0, np.minimum(1, t))
+        t = np.dot(w, v) / dot_vv
 
-            # Find the closest point on the segment to P
-            closest_point_on_segment = A + t_clamped * v
+        # Only consider orthogonal projections that lie strictly on the segment
+        if not (0.0 < t < 1.0):
+            return False, float("inf")
 
-            # Calculate the distance
-            distance = np.linalg.norm(point_P - closest_point_on_segment)
-            # print(f"Checking collision between segment ({A}, {B}) and point {point_P}, distance: {distance}, radius: {radius}")
+        closest_point_on_segment = A + t * v
+        distance = np.linalg.norm(point_P - closest_point_on_segment)
+        clearance = distance - radius
 
-        return bool(distance <= radius), float(distance - radius if distance - radius > 0 else 0.0)
+        return bool(clearance <= 0.0), float(clearance if bool(clearance >= 0.0) else 0)
 
     def fk_for_all(self, q: np.ndarray) -> List[SE3]:
         """
@@ -337,10 +342,13 @@ class Obstacle:
             q_path (np.ndarray): A numpy array where each row is a joint configuration (q) in the path.
         """
         fig = plt.figure(figsize=(10, 10))
-        ax = fig.add_subplot(111, projection="3d")
+        ax = cast(Axes3D, fig.add_subplot(111, projection="3d"))
         plt.ion()  # Turn on interactive mode for animation
 
         # Plot the obstacle's centerline
+        if self.line_final is None:
+            raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
+
         centerline = self.line_final
         ax.plot(centerline[:, 0], centerline[:, 1], centerline[:, 2], "r-", label="Obstacle Centerline")
 

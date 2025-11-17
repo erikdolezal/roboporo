@@ -39,8 +39,8 @@ class PathFollowingPlanner:
                 roll_angles_deg = [0]
             else:
                 # For all other waypoints, include tilt and roll
-                tilt_angles_deg = [0, 5, 15, 30]  # Degrees of tilt around Y
-                roll_angles_deg = [0, 5, 15, 30]  # Degrees of roll around X
+                tilt_angles_deg = [-45, -30, -15, -5, 0, 5, 15, 30, 45]  # Degrees of tilt around Y
+                roll_angles_deg = [-45, -30, -15, -5, 0, 5, 15, 30, 45]  # Degrees of roll around X
             tilt_angles_rad = [np.radians(deg) for deg in tilt_angles_deg]
             roll_angles_rad = [np.radians(deg) for deg in roll_angles_deg]
 
@@ -69,11 +69,15 @@ class PathFollowingPlanner:
                             ik_sols_mask = np.all(ik_sols < self.robot_interface.q_max, axis=1) & np.all(ik_sols > self.robot_interface.q_min, axis=1)
                             ik_sols = ik_sols[ik_sols_mask]
                         if len(ik_sols) > 0:
-                            ik_sols_mask = [not self.obstacle.check_arm_colision(ik_sol) for ik_sol in ik_sols]
+                            ik_sols_mask = [not self.obstacle.check_arm_colision(ik_sol)[0] for ik_sol in ik_sols]
                             ik_sols = ik_sols[ik_sols_mask]
                         if len(ik_sols) > 0:
                             if tilt_angle == 0 and roll_angle == 0:
+
                                 ik_sols_tangent_only.append(ik_sols)
+                            print(
+                                f"Waypoint {waypoint_idx}, tangent rot {np.degrees(angle):.1f}°, tilt {np.degrees(tilt_angle):.1f}°, roll {np.degrees(roll_angle):.1f}°: Found {len(ik_sols)} IK solutions."
+                            )
                             ik_sols_all.append(ik_sols)
 
             if len(ik_sols_all) == 0:
@@ -110,13 +114,15 @@ class PathFollowingPlanner:
             hoop_x_axis = hoop_pose.rotation.rot[:, 0]
             me_vector = np.array([1, 0, -3])
             dot_prod = np.dot(hoop_x_axis, me_vector)
+            collision, dist = self.obstacle.check_arm_colision(candidate_q)
             # collision_in_path_cost = 1000 if self.obstacle.is_path_viable(prev_q, candidate_q) else 0
 
             cost = (
-                50 * np.linalg.norm(candidate_q - prev_q) ** 2
+                30 * np.linalg.norm(candidate_q - prev_q) ** 2
                 + 1 * np.sum(np.maximum(0, self.Z_LIMIT * 2 - T_pose.translation[2]))
                 + 0.1 * np.linalg.norm(candidate_q[-2:] - (self.robot_interface.q_max[-2:] + self.robot_interface.q_min[-2:]) / 2)
-                + 0.5 * (-dot_prod)
+                + 2 * (-dot_prod)
+                + 5 * (-dist)
             )
             return cost
 
@@ -190,6 +196,7 @@ class PathFollowingPlanner:
                 for q_mid in candidate_qs:
                     cost1 = get_transition_cost(q_mid, prev_q)
                     cost2 = get_transition_cost(next_q, q_mid)
+                    # cost2 = 0
                     if cost1 == np.inf or cost2 == np.inf:
                         continue
                     total_segment_cost = cost1 + cost2
@@ -245,7 +252,7 @@ class PathFollowingPlanner:
 
                         if cost1 == np.inf or cost2 == np.inf:
                             continue
-
+                        # prefer cost 2
                         total_segment_cost = cost1 + cost2
                         if total_segment_cost < min_total_segment_cost:
                             min_total_segment_cost = total_segment_cost
@@ -254,6 +261,9 @@ class PathFollowingPlanner:
                 # Update the path with the best configuration found for this point
                 q_path[i] = best_q_for_point
             print(f"  -> Smoothing iteration {iter_num + 1}/{num_smoothing_iterations} complete.")
+
+        for i in range(len(q_path)):
+            print(f"transition cost {i}: {get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0}")
 
         print(f"Final path found with {len(q_path)} points after smoothing.")
         return np.array(q_path)

@@ -30,6 +30,7 @@ class Obstacle:
     def prep_obstacle(self) -> None:
         """Prepare the obstacle by loading, cropping, transforming, and hiding it in a box."""
         self.open_centerline()
+        self.set_crop_limits()
         self.crop_centerline_z()
         self.tranform_centerline()
         self.sample_centerline_points(num_points=self.num_waypoints)
@@ -241,6 +242,26 @@ class Obstacle:
         return True
 
     # ----------------------Inner-Helper-Functions-----------------------------------------------
+    
+    def set_crop_limits(self) -> None:
+        """Set cropping limits based on obstacle type."""
+        if self.type == "A":
+            self.start = 0.005
+            self.end = 10.0
+        elif self.type == "B":
+            self.start = 0.005
+            self.end = 10.0
+        elif self.type == "C":
+            self.start = 0.005
+            self.end = 10.0
+        elif self.type == "D":
+            self.start = 0.005
+            self.end = 10.0
+        elif self.type == "E":
+            self.start = 0.005
+            self.end = 10.0
+        else:
+            raise ValueError(f"Unknown obstacle type: {self.type}")
 
     def check_segment_to_point_collision(self, frame_A: SE3, frame_B: SE3, point_P: np.ndarray, radius: float) -> tuple[bool, float]:
         """

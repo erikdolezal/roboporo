@@ -9,11 +9,12 @@ from src.core.obstacles import Obstacle
 
 
 class RRTPlanner:
-    def __init__(self, robot_interface: RobotInterface, obstacle: Obstacle, step_size: float = 0.1, max_iter: int = 1000) -> None:
+    def __init__(self, robot_interface: RobotInterface, obstacle: Obstacle, step_size: float = 0.1, goal_tol: float = 0.1, max_iter: int = 1000) -> None:
         self.robot_interface = robot_interface
         self.obstacle = obstacle
         self.step_size = step_size
         self.max_iter = max_iter
+        self.goal_tol = goal_tol
         
         self.tree = {}  # key: tuple(q), value: Node
         
@@ -33,7 +34,7 @@ class RRTPlanner:
                 new_node = self.Node(new_q, parent=nearest_node)
                 self.tree[tuple(new_q)] = new_node
                 
-                if np.linalg.norm(new_q - goal_q) < self.step_size:
+                if np.linalg.norm(new_q - goal_q) < self.goal_tol:
                     goal_node = self.Node(goal_q, parent=new_node)
                     self.tree[tuple(goal_q)] = goal_node
                     return self.reconstruct_path(goal_node)
@@ -70,8 +71,7 @@ class RRTPlanner:
         
     def check_collision(self, q: np.ndarray) -> bool:
         """Checks if the configuration q is in collision with the obstacle."""
-        # TODO: Implement collision checking logic
-        return False  # Placeholder, assume no collision
+        return self.obstacle.check_hoop_collision(q)
     
     def reconstruct_path(self, goal_node: 'RRTPlanner.Node') -> list[np.ndarray]:
         """Reconstructs the path from start to goal by backtracking from the goal node."""

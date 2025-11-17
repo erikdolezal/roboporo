@@ -227,6 +227,21 @@ class Obstacle:
         # If no collisions were found along the path, it is viable.
         return True
 
+    def check_hoop_collision(self, q: np.ndarray, segment: tuple) -> bool:
+        """Check if the robot hoop at configuration q collides with the obstacle. 
+        Args:
+            q (np.ndarray): The joint configuration of the robot.
+        Returns:
+            bool: True if there is a collision, False otherwise.
+        """
+        if self.check_arm_colision(q)[0]:
+            return True
+        
+        # TODO: Implement hoop collision checking logic
+        
+        
+        return False
+    
     # ----------------------Inner-Helper-Functions-----------------------------------------------
     
     def set_crop_limits(self) -> None:

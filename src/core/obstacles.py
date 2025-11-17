@@ -53,25 +53,11 @@ class Obstacle:
         ax.set_zlabel("z")
         plt.show()
 
-    def check_point_in_box(self, point: np.ndarray) -> bool:
-        """Check if a given point is inside the obstacle's box."""
-        if self.box is None:
-            raise ValueError("Box not defined. Call hide_in_box() first.")
-        min_coords, max_coords = self.box
-        return bool(np.all(point >= min_coords) and np.all(point <= max_coords))
-
     def get_centerline(self) -> np.ndarray:
         """Get the transformed centerline points."""
         if self.line_final is None:
             raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
         return self.line_final
-
-    def change_box_offset(self, new_offset: np.ndarray) -> None:
-        """Change the box offset for hiding the obstacle."""
-        if new_offset.shape != (3,):
-            raise ValueError("Offset must be a 3D vector.")
-        self.box_offset = new_offset
-        self.hide_in_box(offset=self.box_offset)
 
     def sample_centerline_points(self, num_points: int = 30) -> list[SE3]:
         num_points = int(num_points - 1)
@@ -357,14 +343,6 @@ class Obstacle:
             transformed_point = self.transform.act(point)
             transformed_points.append(transformed_point)
         self.line_final = np.array(transformed_points)
-
-    def hide_in_box(self, offset: np.ndarray) -> None:
-        """Hide the obstacle within a box defined by offset and size."""
-        if self.line_final is None:
-            raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
-        min_coords = np.min(self.line_final, axis=0) - offset
-        max_coords = np.max(self.line_final, axis=0) + offset
-        self.box = (min_coords, max_coords)
 
     def visualize_path(self, q_path: np.ndarray) -> None:
         """

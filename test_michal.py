@@ -31,9 +31,13 @@ if __name__ == "__main__":
     ax = fig.add_subplot(111, projection="3d")
     ax.view_init(elev=40.0, azim=-150)
     # vizualize
-    for q in best_q_list:
-        T = robot.hoop_fk(q)
-        draw_3d_frame(ax, T.rotation.rot, T.translation, scale=0.02)
+    for i in range(1,len(best_q_list)):
+        q = best_q_list[i]
+        prev_q = best_q_list[i-1] if i > 0 else q
+        interpolated_qs = np.linspace(prev_q, q, num=20)
+        for iq in interpolated_qs:
+             T = robot.hoop_fk(iq)
+             draw_3d_frame(ax, T.rotation.rot, T.translation, scale=0.02)
     ax.set_aspect("equal")
     ax.set_xlabel("x")
     ax.set_ylabel("y")

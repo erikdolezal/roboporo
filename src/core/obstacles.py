@@ -98,21 +98,23 @@ class Obstacle:
 
         # Create SE3 transformations with tangent directions
         se3_list = []
-        for i, idx in enumerate(indices):
-            position = np.mean(self.line_final[max(0, idx - 2) : min(total_points, idx + 3)], axis=0)
+        positions = []
+        tangents = []
+        for i in range(len(self.line_final)):
+            position = np.mean(self.line_final[max(0, i - 4) : min(total_points, i + 5)], axis=0)
 
             # Calculate tangent direction
-            if idx == 0:
+            if i == 0:
                 # First point: use direction to next point
-                tangent = self.line_final[idx + 1] - self.line_final[idx]
-            elif idx == total_points - 1:
+                tangent = self.line_final[i + 1] - self.line_final[i]
+            elif i == len(self.line_final) - 1:
                 # Last point: use direction from previous point
-                tangent = self.line_final[idx] - self.line_final[idx - 1]
+                tangent = self.line_final[i] - self.line_final[i - 1]
             else:
                 # Middle points: use central difference
-                tangent = self.line_final[idx + 1] - self.line_final[idx - 1]
+                tangent = self.line_final[i + 1] - self.line_final[i - 1]
 
-            _, _, Vt = np.linalg.svd(self.line_final[max(0, idx - 2) : min(total_points, idx + 3)] - position)
+            _, _, Vt = np.linalg.svd(self.line_final[max(0, i - 4) : min(len(self.line_final), i + 5)] - position)
 
             if np.dot(tangent, Vt[0]) < 0:
                 tangent = -Vt[0]
@@ -121,43 +123,52 @@ class Obstacle:
 
             # Normalize tangent
             tangent = tangent / np.linalg.norm(tangent)
+            positions.append(position)
+            tangents.append(tangent)
 
-            # Create rotation matrix with tangent as z-axis
-            z_axis = -tangent
+        prev_tangent = None
+        for i in range(len(tangents)):
+            if prev_tangent is None or np.dot(tangents[i], prev_tangent) < np.cos(np.deg2rad(10)) or i == len(tangents) - 1:
+                prev_tangent = tangents[i].copy()
+                tangent = tangents[i]
+                position = positions[i]
 
-            # Choose arbitrary perpendicular vector for y-axis, handle singularity
-            if np.allclose(np.abs(z_axis), [0, 1, 0]):
-                # Tangent is parallel to Y-axis, use Z-axis for cross product
-                x_axis = np.cross(z_axis, [0, 0, 1])
-            else:
-                # Default case
-                x_axis = np.cross(z_axis, [0, 1, 0])
+                # Create rotation matrix with tangent as z-axis
+                z_axis = -tangent
 
-            # Check for zero vector in case of unforeseen issues
-            if np.linalg.norm(x_axis) < 1e-6:
-                # If still a problem, use a fallback (e.g., world X-axis)
-                x_axis = np.cross(z_axis, [1, 0, 0])
+                # Choose arbitrary perpendicular vector for y-axis, handle singularity
+                if np.allclose(np.abs(z_axis), [0, 1, 0]):
+                    # Tangent is parallel to Y-axis, use Z-axis for cross product
+                    x_axis = np.cross(z_axis, [0, 0, 1])
+                else:
+                    # Default case
+                    x_axis = np.cross(z_axis, [0, 1, 0])
 
-            x_axis = x_axis / np.linalg.norm(x_axis)
+                # Check for zero vector in case of unforeseen issues
+                if np.linalg.norm(x_axis) < 1e-6:
+                    # If still a problem, use a fallback (e.g., world X-axis)
+                    x_axis = np.cross(z_axis, [1, 0, 0])
 
-            # Complete the orthonormal basis
-            y_axis = np.cross(z_axis, x_axis)  # Swapped order to ensure right-handed system
+                x_axis = x_axis / np.linalg.norm(x_axis)
 
-            # Create rotation matrix
-            rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
+                # Complete the orthonormal basis
+                y_axis = np.cross(z_axis, x_axis)  # Swapped order to ensure right-handed system
 
-            # Ensure it's a valid rotation matrix (handle potential floating point inaccuracies)
-            if np.linalg.det(rotation_matrix) < 0:
-                # Flip one axis to correct the handedness
-                x_axis = -x_axis
+                # Create rotation matrix
                 rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
 
-            # print(f"Rotation matrix at waypoint {i}:\n{rotation_matrix}\n")
+                # Ensure it's a valid rotation matrix (handle potential floating point inaccuracies)
+                if np.linalg.det(rotation_matrix) < 0:
+                    # Flip one axis to correct the handedness
+                    x_axis = -x_axis
+                    rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
 
-            # Create SE3 transformation
+                # print(f"Rotation matrix at waypoint {i}:\n{rotation_matrix}\n")
 
-            se3 = SE3(translation=position, rotation=SO3(rotation_matrix))
-            se3_list.append(se3)
+                # Create SE3 transformation
+
+                se3 = SE3(translation=position, rotation=SO3(rotation_matrix))
+                se3_list.append(se3)
 
         first_se3 = se3_list[0]
         first_tangent = first_se3.rotation.rot[:, 2]  # x-axis is the tangent

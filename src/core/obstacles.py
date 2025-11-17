@@ -127,8 +127,10 @@ class Obstacle:
             tangents.append(tangent)
 
         prev_tangent = None
+        prev_position = None
         for i in range(len(tangents)):
-            if prev_tangent is None or np.dot(tangents[i], prev_tangent) < np.cos(np.deg2rad(10)) or i == len(tangents) - 1:
+            if prev_tangent is None or np.dot(tangents[i], prev_tangent) < np.cos(np.deg2rad(10)) or i == len(tangents) - 1 or np.linalg.norm(positions[i] - prev_position) > 0.03:
+                prev_position = positions[i].copy()
                 prev_tangent = tangents[i].copy()
                 tangent = tangents[i]
                 position = positions[i]

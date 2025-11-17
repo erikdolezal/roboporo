@@ -96,9 +96,20 @@ class PathFollowingPlanner:
             # --- Process and store tangent-only solutions (for initial search) ---
             if len(ik_sols_tangent_only) > 0:
                 if len(ik_sols_tangent_only) < 20 and len(ik_sols_filtered) > 20:
-                    add_from_all = 20 - len(ik_sols_tangent_only)
+                    k = 20 - len(ik_sols_tangent_only)
+
                     ik_sols_tangent_only_extended = ik_sols_tangent_only.copy()
-                    ik_sols_tangent_only_extended.extend(random.choices(ik_sols_filtered, k=add_from_all))
+
+                    n = len(ik_sols_filtered)
+
+                    # 1. Create k evenly spaced indices from 0 to n-1
+                    # np.linspace(start, stop, num_items)
+                    evenly_spaced_indices = np.linspace(0, n - 1, k, dtype=int)
+
+                    # 2. Select the items at those indices
+                    samples = [ik_sols_filtered[i] for i in evenly_spaced_indices]
+
+                    ik_sols_tangent_only_extended.extend(samples)
 
                     ik_sols_tangent_combined = np.vstack(ik_sols_tangent_only_extended)
                 else:
@@ -109,9 +120,18 @@ class PathFollowingPlanner:
                 tangent_only_ik_solutions.append(ik_sols_tangent_combined)
             else:
                 # Fallback to all solutions if no tangent-only solutions are found for this waypoint
-                max_ik_sols = 30
+                max_ik_sols = 35
                 if len(ik_sols_filtered) > max_ik_sols:
-                    ik_sols_picked = np.vstack(random.choices(ik_sols_filtered, k=max_ik_sols))
+
+                    k = max_ik_sols
+                    n = len(ik_sols_filtered)
+
+                    evenly_spaced_indices = np.linspace(0, n - 1, k, dtype=int)
+
+                    # 2. Select the items at those indices
+                    samples = [ik_sols_filtered[i] for i in evenly_spaced_indices]
+
+                    ik_sols_picked = np.vstack(samples)
                     tangent_only_ik_solutions.append(ik_sols_picked)
                 else:
                     tangent_only_ik_solutions.append(ik_sols_filtered)
@@ -173,7 +193,10 @@ class PathFollowingPlanner:
                 return
 
             # Pruning: If the current path is already more expensive than the best found so far, stop.
-            if current_cost * 2 >= min_total_cost or start_time + 30 < time.time():
+            if current_cost * 1.5 >= min_total_cost:
+                return
+            if start_time + 30 < time.time():
+                print("Exhaustive search timeout reached.")
                 return
 
             prev_q = current_path[-1]

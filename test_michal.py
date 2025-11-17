@@ -14,7 +14,7 @@ from src.core.helpers import visualize_homography, project_homography, draw_3d_f
 if __name__ == "__main__":
     robot = RobotInterface(CRS97(tty_dev=None))
     maze_position = SE3(translation=np.array([0.36, -0.1, 0.1]), rotation=SO3.from_euler_angles(np.deg2rad(np.array([0.0, 0, -120])), ["x", "y", "z"]))
-    obstacle = Obstacle(robot, "B", "src/tools/models", maze_position, num_waypoints=15)
+    obstacle = Obstacle(robot, "E", "src/tools/models", maze_position, num_waypoints=15, start=0.08)
     obstacle.prep_obstacle()
     maze_waypoints = obstacle.waypoints
 
@@ -33,18 +33,22 @@ if __name__ == "__main__":
     # vizualize
     for i in range(1,len(best_q_list)):
         q = best_q_list[i]
+        actual_pose = robot.hoop_fk(q)
         prev_q = best_q_list[i-1] if i > 0 else q
-        interpolated_qs = np.linspace(prev_q, q, num=20)
+        prev_pose = robot.hoop_fk(prev_q)
+        interpolated_qs = np.linspace(prev_q, q, num=int(1 + np.linalg.norm(actual_pose.translation - prev_pose.translation) / 0.01), endpoint=True)
         for iq in interpolated_qs:
              T = robot.hoop_fk(iq)
              draw_3d_frame(ax, T.rotation.rot, T.translation, scale=0.02)
+             ax.plot(*T.translation, marker="o", color="blue", markersize=2)
+    ax.plot(*obstacle.line_final.T, color="black")
     ax.set_aspect("equal")
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_zlabel("z")
     plt.show()
 
-    obstacle.visualize_path(best_q_list)
+    #obstacle.visualize_path(best_q_list)
 
     """
     print("Starting Michal's HoopPathOptimizer...")  # take down max_iter if it takes too long

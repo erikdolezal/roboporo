@@ -1,5 +1,5 @@
 from eel import init
-from src.core.planning import PathFollowingPlanner
+from src.core.planning_michal import PathFollowingPlanner
 from src.core.obstacles import Obstacle
 from ctu_crs import CRS97, CRS93
 from src.interface.robot_interface import RobotInterface
@@ -13,8 +13,8 @@ from src.core.helpers import visualize_homography, project_homography, draw_3d_f
 
 if __name__ == "__main__":
     robot = RobotInterface(CRS97(tty_dev=None))
-    maze_position = SE3(translation=np.array([0.36, -0.1, 0.1]), rotation=SO3.from_euler_angles(np.deg2rad(np.array([0.0, 0, -120])), ["x", "y", "z"]))
-    obstacle = Obstacle(robot, "E", "src/tools/models", maze_position, num_waypoints=15, start=0.08)
+    maze_position = SE3(translation=np.array([0.32, -0.12, 0.1]), rotation=SO3.from_euler_angles(np.deg2rad(np.array([0.0, 0, -10])), ["x", "y", "z"]))
+    obstacle = Obstacle(robot, "C", "src/tools/models", maze_position, num_waypoints=15)
     obstacle.prep_obstacle()
     maze_waypoints = obstacle.waypoints
 

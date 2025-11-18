@@ -26,6 +26,8 @@ class Obstacle:
 
         # Collision detection parameters
         self.arm_radius = 0.12  # meters
+        if self.type == "E":
+            self.arm_radius = 0.08  # meters
 
     def prep_obstacle(self) -> None:
         """Prepare the obstacle by loading, cropping, transforming, and hiding it in a box."""
@@ -34,7 +36,7 @@ class Obstacle:
         self.crop_centerline_z()
         self.tranform_centerline()
         self.sample_centerline_points(num_points=self.num_waypoints)
-        self.hide_in_box(offset=self.box_offset)
+        # self.hide_in_box(offset=self.box_offset)
 
         fig = plt.figure(figsize=(8, 8), layout="tight")
         ax = cast(Axes3D, fig.add_subplot(111, projection="3d"))
@@ -228,7 +230,7 @@ class Obstacle:
         return True
 
     def check_hoop_collision(self, q: np.ndarray, segment: tuple) -> bool:
-        """Check if the robot hoop at configuration q collides with the obstacle. 
+        """Check if the robot hoop at configuration q collides with the obstacle.
         Args:
             q (np.ndarray): The joint configuration of the robot.
         Returns:
@@ -236,14 +238,13 @@ class Obstacle:
         """
         if self.check_arm_colision(q)[0]:
             return True
-        
+
         # TODO: Implement hoop collision checking logic
-        
-        
+
         return False
-    
+
     # ----------------------Inner-Helper-Functions-----------------------------------------------
-    
+
     def set_crop_limits(self) -> None:
         """Set cropping limits based on obstacle type."""
         if self.type == "A":

@@ -31,7 +31,7 @@ class Obstacle:
         self.arm_radius = 0.1  # meters
         
         # Major and minor radius of the torus obstacle
-        self.major_radius = 0.06  # meters
+        self.major_radius = 0.06 / 2 # meters
         self.minor_radius = 0.01  # meters
 
     def prep_obstacle(self) -> None:
@@ -250,6 +250,16 @@ class Obstacle:
             (self.line_final[:, 2] >= segment[0]) & (self.line_final[:, 2] <= segment[1])
         ]
         line_transformed = np.array([T_hoop_inv.act(point) for point in line_snippet])
+        
+        z_dis_center = line_transformed[:, 2]
+        xy_dis_center = np.linalg.norm(line_transformed[:, :2], axis=1)\
+            
+        if not np.any(np.abs(z_dis_center) <= self.major_radius) :
+            return True
+        
+        if np.any(np.abs(z_dis_center) <= self.major_radius*0.5) and np.any(np.abs(xy_dis_center - self.major_radius) >= self.major_radius):
+            return True
+        
         distances = self.SDF_torus(line_transformed.T)
         if np.any(distances <= 0):
             return True
@@ -460,7 +470,7 @@ class Obstacle:
             ax.set_title(f"Robot Path Visualization (Step {i+1}/{len(q_path)})")
 
             # Pause to create the animation effect
-            plt.pause(0.1)
+            plt.pause(0.25)
 
         ax.set_title("Robot Path Visualization (Finished)")
         plt.ioff()  # Turn off interactive mode

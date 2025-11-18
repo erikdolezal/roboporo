@@ -22,20 +22,45 @@ if __name__ == "__main__":
     # print("Waypoints:")
     # for wp in maze_waypoints:
     # print(wp)
-
-    # Michals stupid optimizer
-
+    
     init_planner = PathFollowingPlanner(robot, obstacle, maze_waypoints, robot.hoop_ik)
     best_q_list = np.array(init_planner.get_list_of_best_q())
+
+    
+    fig = plt.figure(figsize=(8, 8), layout="tight")
+    ax = fig.add_subplot(111, projection="3d")
+    ax.view_init(elev=40.0, azim=-150)
+    # vizualize
+    for i in range(1, len(best_q_list)):
+        q = best_q_list[i]
+        actual_pose = robot.hoop_fk(q)
+        prev_q = best_q_list[i - 1] if i > 0 else q
+        prev_pose = robot.hoop_fk(prev_q)
+        interpolated_qs = np.linspace(prev_q, q, num=int(1 + np.linalg.norm(actual_pose.translation - prev_pose.translation) / 0.01), endpoint=True)
+        for iq in interpolated_qs:
+            T = robot.hoop_fk(iq)
+            draw_3d_frame(ax, T.rotation.rot, T.translation, scale=0.02)
+            ax.plot(*T.translation, marker="o", color="blue", markersize=2)
+    ax.plot(*obstacle.line_final.T, color="black")
+    ax.set_aspect("equal")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    plt.show()
+    
     print("Best q list from PathFollowingPlanner:")
     print(best_q_list)
     rrt_planner = RRTPlanner(robot, obstacle, step_size=0.05, goal_tol=0.5, max_iter=2000)
+    full_path = []
     for i in range(len(maze_waypoints) - 1):
         q_start = best_q_list[i]
         q_goal = best_q_list[i + 1]
         print(f"Planning from waypoint {i} to waypoint {i+1}...")
         path_segment = rrt_planner.plan(q_start, q_goal)
-        obstacle.visualize_path(path_segment)
+        full_path.extend(path_segment)
+        #obstacle.visualize_path(path_segment)
+        
+    obstacle.visualize_path(full_path)
     
 
     # fig = plt.figure(figsize=(8, 8), layout="tight")

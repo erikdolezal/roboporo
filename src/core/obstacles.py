@@ -29,6 +29,10 @@ class Obstacle:
         # self.arm_radius = 0.12  # meters
         # if self.type == "E":
         self.arm_radius = 0.1  # meters
+        
+        # Major and minor radius of the torus obstacle
+        self.major_radius = 0.06  # meters
+        self.minor_radius = 0.01  # meters
 
     def prep_obstacle(self) -> None:
         """Prepare the obstacle by loading, cropping, transforming, and hiding it in a box."""

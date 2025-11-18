@@ -9,7 +9,7 @@ from src.core.obstacles import Obstacle
 
 
 class RRTPlanner:
-    def __init__(self, robot_interface: RobotInterface, obstacle: Obstacle, step_size: float = 0.1, goal_tol: float = 0.1, max_iter: int = 1000) -> None:
+    def __init__(self, robot_interface: RobotInterface, obstacle: Obstacle, step_size: float = 0.05, goal_tol: float = 0.5, max_iter: int = 2000) -> None:
         self.robot_interface = robot_interface
         self.obstacle = obstacle
         self.step_size = step_size
@@ -18,18 +18,23 @@ class RRTPlanner:
         
         self.tree = {}  # key: tuple(q), value: Node
         
+        self.seed_q = None
+        self.seed_sigma = 0.3
+        self.seed_probability = 0.7
+        
     def plan(self, start_q: np.ndarray, goal_q: np.ndarray) -> list[np.ndarray]:
         """
         Plans a path from start_q to goal_q using the RRT algorithm.
         """
         start_node = self.Node(start_q)
         self.tree[tuple(start_q)] = start_node
+        self.seed_q = start_q.copy()
         
         for iteration in range(self.max_iter):
-            rand_q = self.sample_random_configuration()
+            rand_q = self.sample_random_configuration(goal_q)
             nearest_node = self.find_nearest_node(rand_q)
             new_q = self.steer_towards(nearest_node.q, rand_q)
-            
+            #print(f"Iteration {iteration}: Trying to add node at {new_q}, distance to goal: {np.linalg.norm(new_q - goal_q)}")
             if not self.check_collision(new_q):
                 new_node = self.Node(new_q, parent=nearest_node)
                 self.tree[tuple(new_q)] = new_node
@@ -37,14 +42,27 @@ class RRTPlanner:
                 if np.linalg.norm(new_q - goal_q) < self.goal_tol:
                     goal_node = self.Node(goal_q, parent=new_node)
                     self.tree[tuple(goal_q)] = goal_node
+                    print(f"Goal reached in iteration {iteration}!, distance to goal: {np.linalg.norm(new_q - goal_q)}")
                     return self.reconstruct_path(goal_node)
-        
+            else:
+                print(f"Iteration {iteration}: Collision at {new_q}")
+            
+        print("Failed to find a path within the maximum iterations.")
         return []  # No path found
     
-    def sample_random_configuration(self) -> np.ndarray:
+    def sample_random_configuration(self, q_goal: np.ndarray, goal_bias: float = 0.1) -> np.ndarray:
         """Samples a random configuration within the robot's joint limits."""
+        
+        randomization = random.random()
+        if randomization < goal_bias:
+            return q_goal.copy()
+        
+        if randomization < self.seed_probability:
+            return np.array([np.clip(random.gauss(self.seed_q[i], self.seed_sigma), self.robot_interface.robot.q_min[i], self.robot_interface.robot.q_max[i]) for i in range(len(self.seed_q))])
+        
         q_min = self.robot_interface.robot.q_min
         q_max = self.robot_interface.robot.q_max
+        
         return np.array([random.uniform(q_min[i], q_max[i]) for i in range(len(q_min))])
     
     def find_nearest_node(self, q: np.ndarray) -> 'RRTPlanner.Node':

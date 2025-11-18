@@ -229,7 +229,7 @@ class Obstacle:
         # If no collisions were found along the path, it is viable.
         return True
 
-    def check_hoop_collision(self, q: np.ndarray, segment: tuple) -> bool:
+    def check_hoop_collision(self, q: np.ndarray, segment: tuple[float, float] = (0.0, 10.0)) -> bool:
         """Check if the robot hoop at configuration q collides with the obstacle.
         Args:
             q (np.ndarray): The joint configuration of the robot.
@@ -238,13 +238,35 @@ class Obstacle:
         """
         if self.check_arm_colision(q)[0]:
             return True
-
-        # TODO: Implement hoop collision checking logic
-
+        
+        T_hoop = self.robot_interface.hoop_fk(q)
+        T_hoop_inv = T_hoop.inverse()
+        line_snippet = self.line_final[
+            (self.line_final[:, 2] >= segment[0]) & (self.line_final[:, 2] <= segment[1])
+        ]
+        line_transformed = np.array([T_hoop_inv.act(point) for point in line_snippet])
+        distances = self.SDF_torus(line_transformed.T)
+        if np.any(distances <= 0):
+            return True
+        
         return False
 
     # ----------------------Inner-Helper-Functions-----------------------------------------------
 
+    def SDF_torus(self, points: np.ndarray) -> np.ndarray[float]:
+        """Signed Distance Function for a torus centered at the origin in the XY plane.
+
+        Args:
+            point (np.ndarray): A point (x, y, z)
+
+        Returns:
+            float: The signed distance from the point to the surface of the torus.
+        """
+        x, y, z = points
+        p = np.sqrt(x**2 + y**2) - self.major_radius
+        d = np.array(np.sqrt(p**2 + z**2) - self.minor_radius)
+        return d
+    
     def set_crop_limits(self) -> None:
         """Set cropping limits based on obstacle type."""
         if self.type == "A":
@@ -412,11 +434,24 @@ class Obstacle:
                 (line,) = ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], "b-o", linewidth=4, markersize=6)
                 robot_lines.append(line)
 
+            # Draw a hoop at the end effector
+            end_effector_frame = self.robot_interface.hoop_fk(q)
+            hoop_radius = 0.06 / 2  # Major radius of the hoop
+            num_hoop_points = 50
+            theta = np.linspace(0, 2 * np.pi, num_hoop_points)
+            hoop_points = np.array([
+                hoop_radius * np.cos(theta),
+                hoop_radius * np.sin(theta),
+                np.zeros(num_hoop_points)
+            ]).T  # Shape (num_hoop_points, 3)
+            hoop_points_transformed = np.array([end_effector_frame.act(point) for point in hoop_points])
+            (hoop_line,) = ax.plot(hoop_points_transformed[:, 0], hoop_points_transformed[:, 1], hoop_points_transformed[:, 2], "g-", linewidth=2)
+            robot_lines.append(hoop_line)
             # Update the title to show progress
             ax.set_title(f"Robot Path Visualization (Step {i+1}/{len(q_path)})")
 
             # Pause to create the animation effect
-            plt.pause(2)
+            plt.pause(0.1)
 
         ax.set_title("Robot Path Visualization (Finished)")
         plt.ioff()  # Turn off interactive mode

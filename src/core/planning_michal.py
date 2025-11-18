@@ -1,5 +1,3 @@
-from hmac import new
-import random
 import numpy as np
 import time
 

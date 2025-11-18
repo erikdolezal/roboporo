@@ -20,17 +20,7 @@ class PathFollowingPlanner:
         self.ik_func = ik_func
         self.Z_LIMIT = 0.02
 
-    def get_list_of_best_q(self) -> np.ndarray:
-        """
-        Follows the path of waypoints, calculating the best inverse kinematics solution for each.
-        This version uses an iterative refinement approach with an exhaustive initial search.
-        """
-
-        planner_start_time = time.time()
-
-        if not self.waypoints:
-            raise ValueError("No waypoints available.")
-
+    def get_all_ik_solutions(self):
         # Get all IK solutions for each waypoint
         all_ik_solutions = []
         for waypoint_idx, waypoint in enumerate(self.waypoints):
@@ -88,6 +78,20 @@ class PathFollowingPlanner:
             all_ik_solutions.append(ik_sols_filtered)
 
         print("done generating ik solutions")
+        return all_ik_solutions
+
+    def get_list_of_best_q(self) -> np.ndarray:
+        """
+        Follows the path of waypoints, calculating the best inverse kinematics solution for each.
+        This version uses an iterative refinement approach with an exhaustive initial search.
+        """
+
+        planner_start_time = time.time()
+
+        if not self.waypoints:
+            raise ValueError("No waypoints available.")
+
+        all_ik_solutions = self.get_all_ik_solutions()
 
         # --- Iterative Refinement Planner with Exhaustive Initial Search ---
 

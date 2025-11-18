@@ -20,7 +20,7 @@ class PathFollowingPlanner:
         self.ik_func = ik_func
         self.Z_LIMIT = 0.02
 
-    def get_all_ik_solutions(self):
+    def get_all_ik_solutions(self) -> list[np.ndarray]:
         # Get all IK solutions for each waypoint
         all_ik_solutions = []
         for waypoint_idx, waypoint in enumerate(self.waypoints):

@@ -18,13 +18,16 @@ class PathFollowingPlanner:
         self.q_max = robot_interface.q_max
         self.q_min = robot_interface.q_min
         self.ik_func = ik_func
-        self.Z_LIMIT = 0.01
+        self.Z_LIMIT = 0.02
 
     def get_list_of_best_q(self) -> np.ndarray:
         """
         Follows the path of waypoints, calculating the best inverse kinematics solution for each.
         This version uses an iterative refinement approach with an exhaustive initial search.
         """
+
+        planner_start_time = time.time()
+
         if not self.waypoints:
             raise ValueError("No waypoints available.")
 
@@ -107,7 +110,7 @@ class PathFollowingPlanner:
                 + 5 * (-dot_prod)
                 + 10 * (-dist)
             )
-            return cost if cost < 50 else cost + 100
+            return cost if cost < 50 else cost + 200
 
         for waypoint_idx, sols in enumerate(all_ik_solutions):
             print(f"All search waypoint {waypoint_idx} has {len(sols)} IK solutions.")
@@ -162,14 +165,12 @@ class PathFollowingPlanner:
 
         num_smoothing_iterations = 1
 
-        start_time = time.time()
-
         print("Starting path smoothing...")
         for iter_num in range(num_smoothing_iterations):
             # Iterate backwards through the path, from the last point to the first
             for i in range(len(q_path) - 1, -1, -1):
 
-                if start_time + 30 < time.time():
+                if planner_start_time + 55 < time.time():
                     print("Smoothing timeout reached.")
                     break
 
@@ -227,11 +228,14 @@ class PathFollowingPlanner:
         new_total_cost = sum(get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))
 
         if coarse_cost < new_total_cost:
-            print("Smoothing increased cost; reverting to coarse path.")
             q_path = coarse_path
+            print(f"Smoothing increased cost; reverting to coarse path with cost {coarse_cost}.")
 
         else:
             print(f"Final path found with {len(q_path)} points after smoothing for cost {new_total_cost}.")
+
+        print("took total time:", time.time() - planner_start_time, "seconds")
+
         return np.array(q_path)
 
     def _is_within_limits(self, q: np.ndarray) -> bool:

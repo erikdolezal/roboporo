@@ -1,3 +1,4 @@
+from copy import deepcopy
 import random
 import numpy as np
 import time
@@ -22,7 +23,11 @@ class PathFollowingPlanner:
         """
         Follows the path of waypoints, calculating the best inverse kinematics solution for each.
         This version uses an iterative refinement approach with an exhaustive initial search.
+
         """
+        planning_start_time = time.time()
+        print("Starting PathFollowingPlanner with iterative refinement...")
+
         if not self.waypoints:
             raise ValueError("No waypoints available.")
 
@@ -161,7 +166,7 @@ class PathFollowingPlanner:
                 + 5 * (-dot_prod)
                 + 5 * (-dist)
             )
-            return cost
+            return cost if cost < 50 else cost + 200
 
         # 1. Initialization: Exhaustively find the best coarse path
         num_initial_points = 6
@@ -263,11 +268,19 @@ class PathFollowingPlanner:
             print(f"Refined path. New length: {len(q_path)}")
 
         # 3. Path Smoothing
+
+        before_smoothing_cost = sum(get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))
+        before_smoothing_path = deepcopy(q_path)
+
         num_smoothing_iterations = 3
         print("Starting path smoothing...")
         for iter_num in range(num_smoothing_iterations):
             # Iterate backwards through the path, from the last point to the first
             for i in range(len(q_path) - 1, -1, -1):
+                if planning_start_time + 55 < time.time():
+                    print("Smoothing timeout reached.")
+                    break
+
                 waypoint_idx = path_indices[i]
                 candidate_qs = all_ik_solutions[waypoint_idx]
                 min_total_segment_cost = np.inf
@@ -313,7 +326,13 @@ class PathFollowingPlanner:
         for i in range(len(q_path)):
             print(f"transition cost {i}: {get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0}")
 
+        if before_smoothing_cost < sum(get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path))):
+            q_path = before_smoothing_path
+            print(f"Smoothing increased cost; reverting to pre-smoothing path with cost {before_smoothing_cost}.")
+
         print(f"Final path found with {len(q_path)} points after smoothing.")
+        planner_end_time = time.time()
+        print("PathFollowingPlanner took total time:", planner_end_time - planning_start_time, "seconds")
         return np.array(q_path)
 
     def _is_within_limits(self, q: np.ndarray) -> bool:

@@ -26,9 +26,9 @@ class Obstacle:
         self.ground_limit = 0.02
 
         # Collision detection parameters
-        self.arm_radius = 0.12  # meters
-        if self.type == "E":
-            self.arm_radius = 0.08  # meters
+        # self.arm_radius = 0.12  # meters
+        # if self.type == "E":
+        self.arm_radius = 0.1  # meters
 
     def prep_obstacle(self) -> None:
         """Prepare the obstacle by loading, cropping, transforming, and hiding it in a box."""

@@ -1,4 +1,3 @@
-from eel import init
 from src.core.planning_michal import PathFollowingPlanner
 from src.core.obstacles import Obstacle
 from ctu_crs import CRS97, CRS93

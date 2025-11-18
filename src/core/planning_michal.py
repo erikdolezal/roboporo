@@ -18,23 +18,24 @@ class PathFollowingPlanner:
         self.q_max = robot_interface.q_max
         self.q_min = robot_interface.q_min
         self.ik_func = ik_func
-        self.Z_LIMIT = 0.01
+        self.Z_LIMIT = 0.02
 
     def get_list_of_best_q(self) -> np.ndarray:
         """
         Follows the path of waypoints, calculating the best inverse kinematics solution for each.
         This version uses an iterative refinement approach with an exhaustive initial search.
         """
+
+        planner_start_time = time.time()
+
         if not self.waypoints:
             raise ValueError("No waypoints available.")
 
         # Get all IK solutions for each waypoint
         all_ik_solutions = []
-        tangent_only_ik_solutions = []
         for waypoint_idx, waypoint in enumerate(self.waypoints):
             # Generate multiple orientations around the tangent axis
             ik_sols_all = []
-            ik_sols_tangent_only = []
 
             if waypoint_idx == len(self.waypoints) - 1:
                 # For the last waypoint, only rotate around tangent
@@ -75,69 +76,16 @@ class PathFollowingPlanner:
                             ik_sols_mask = [not self.obstacle.check_arm_colision(ik_sol)[0] for ik_sol in ik_sols]
                             ik_sols = ik_sols[ik_sols_mask]
                         if len(ik_sols) > 0:
-                            # if tilt_angle == 0 and roll_angle == 0:
 
-                            #   ik_sols_tangent_only.append(ik_sols)
-                            # print(
-                            #    f"Waypoint {waypoint_idx}, tangent rot {np.degrees(angle):.1f}°, tilt {np.degrees(tilt_angle):.1f}°, roll {np.degrees(roll_angle):.1f}°: Found {len(ik_sols)} IK solutions."
-                            # )
                             ik_sols_all.append(ik_sols)
 
             if len(ik_sols_all) == 0:
                 raise ValueError(f"No IK solution found for waypoint {waypoint_idx} at {waypoint}")
-
-            # --- Process and store all solutions (for refinement step) ---
             ik_sols_combined = np.vstack(ik_sols_all)
-            # ik_sols_mask = np.all(ik_sols_combined < self.robot_interface.q_max, axis=1) & np.all(ik_sols_combined > self.robot_interface.q_min, axis=1)
-            # ik_sols_filtered = ik_sols_combined[ik_sols_mask]
             ik_sols_filtered = ik_sols_combined
             if len(ik_sols_filtered) == 0:
                 raise ValueError(f"No valid IK solution within joint limits for waypoint {waypoint_idx} at {waypoint}.")
             all_ik_solutions.append(ik_sols_filtered)
-            """
-            # --- Process and store tangent-only solutions (for initial search) ---
-            if len(ik_sols_tangent_only) > 0:
-                if len(ik_sols_tangent_only) < 20 and len(ik_sols_filtered) > 20:
-                    k = 20 - len(ik_sols_tangent_only)
-
-                    ik_sols_tangent_only_extended = ik_sols_tangent_only.copy()
-
-                    n = len(ik_sols_filtered)
-
-                    # 1. Create k evenly spaced indices from 0 to n-1
-                    # np.linspace(start, stop, num_items)
-                    evenly_spaced_indices = np.linspace(0, n - 1, k, dtype=int)
-
-                    # 2. Select the items at those indices
-                    samples = [ik_sols_filtered[i] for i in evenly_spaced_indices]
-
-                    ik_sols_tangent_only_extended.extend(samples)
-
-                    ik_sols_tangent_combined = np.vstack(ik_sols_tangent_only_extended)
-                else:
-                    ik_sols_tangent_combined = np.vstack(ik_sols_tangent_only)
-
-                # ik_sols_mask = np.all(ik_sols_tangent_combined < self.robot_interface.q_max, axis=1) & np.all(ik_sols_tangent_combined > self.robot_interface.q_min, axis=1)
-                # tangent_only_ik_solutions.append(ik_sols_tangent_combined[ik_sols_mask])
-                tangent_only_ik_solutions.append(ik_sols_tangent_combined)
-            else:
-                # Fallback to all solutions if no tangent-only solutions are found for this waypoint
-                max_ik_sols = 35
-                if len(ik_sols_filtered) > max_ik_sols:
-
-                    k = max_ik_sols
-                    n = len(ik_sols_filtered)
-
-                    evenly_spaced_indices = np.linspace(0, n - 1, k, dtype=int)
-
-                    # 2. Select the items at those indices
-                    samples = [ik_sols_filtered[i] for i in evenly_spaced_indices]
-
-                    ik_sols_picked = np.vstack(samples)
-                    tangent_only_ik_solutions.append(ik_sols_picked)
-                else:
-                    tangent_only_ik_solutions.append(ik_sols_filtered)
-                    """
 
         print("done generating ik solutions")
 
@@ -146,8 +94,6 @@ class PathFollowingPlanner:
         def get_transition_cost(candidate_q, prev_q):
             """Calculates the transition cost from a previous configuration to a candidate."""
             T_pose = SE3().from_homogeneous(self.robot_interface.fk(candidate_q))
-            # if T_pose.translation[2] < self.Z_LIMIT:
-            #    return np.inf  # Invalid configuration
 
             hoop_pose = self.robot_interface.hoop_fk(candidate_q)
             hoop_x_axis = hoop_pose.rotation.rot[:, 0]
@@ -164,7 +110,7 @@ class PathFollowingPlanner:
                 + 5 * (-dot_prod)
                 + 10 * (-dist)
             )
-            return cost if cost < 50 else cost + 100
+            return cost if cost < 50 else cost + 200
 
         for waypoint_idx, sols in enumerate(all_ik_solutions):
             print(f"All search waypoint {waypoint_idx} has {len(sols)} IK solutions.")
@@ -195,12 +141,6 @@ class PathFollowingPlanner:
                 return
 
             next_q = current_path[-1]
-            # Explore all solutions for the current waypoint level
-            # for candidate_q in coarse_ik_solutions[waypoint_level]:
-            #    transition_cost = get_transition_cost(candidate_q, prev_q)
-            # Select the top-K cheapest candidates to explore. The previous code
-            # used [0] which returned a single numpy array and iterating over it
-            # yielded scalar joint values (numpy.float64), breaking calls to fk.
             K = 1
             sorted_candidates = sorted(all_ik_solutions[waypoint_level], key=lambda q: get_transition_cost(q, next_q))
             cheapest_candidates = sorted_candidates[: min(K, len(sorted_candidates))]
@@ -223,17 +163,14 @@ class PathFollowingPlanner:
         coarse_cost = sum(get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))
         coarse_path = deepcopy(q_path)
 
-        # 3. Path Smoothing
         num_smoothing_iterations = 1
-
-        start_time = time.time()
 
         print("Starting path smoothing...")
         for iter_num in range(num_smoothing_iterations):
             # Iterate backwards through the path, from the last point to the first
             for i in range(len(q_path) - 1, -1, -1):
 
-                if start_time + 30 < time.time():
+                if planner_start_time + 55 < time.time():
                     print("Smoothing timeout reached.")
                     break
 
@@ -268,31 +205,18 @@ class PathFollowingPlanner:
 
                         if cost1 == np.inf or cost2 == np.inf:
                             continue
-                        # prefer cost 2
                         total_segment_cost = cost1 + cost2
                         if total_segment_cost < min_total_segment_cost:
                             min_total_segment_cost = total_segment_cost
                             best_q_for_point = q_mid
 
-                # Update the path with the best configuration found for this point
-                # Only accept the update if it reduces the overall path cost.
-                # This prevents the greedy local replacement from increasing
-                # the total cost (observed previously where smoothing raised
-                # the global cost significantly).
-                # Compute current total cost
                 old_total_cost = sum(get_transition_cost(q_path[j], q_path[j - 1]) if j > 0 else 0 for j in range(len(q_path)))
-
-                # Compute new total cost with the candidate substitution
                 temp_path = q_path.copy()
                 temp_path[i] = best_q_for_point
-
                 new_total_cost = sum(get_transition_cost(temp_path[j], temp_path[j - 1]) if j > 0 else 0 for j in range(len(temp_path)))
 
                 if new_total_cost <= old_total_cost:
                     q_path[i] = best_q_for_point
-                else:
-                    # Keep original if the change would worsen global cost
-                    print(f"  -> Skipped update for point worse global.")
 
             print(
                 f"  -> Smoothing iteration {iter_num + 1}/{num_smoothing_iterations} complete, new cost {sum(get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))}. "
@@ -304,11 +228,14 @@ class PathFollowingPlanner:
         new_total_cost = sum(get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))
 
         if coarse_cost < new_total_cost:
-            print("Smoothing increased cost; reverting to coarse path.")
             q_path = coarse_path
+            print(f"Smoothing increased cost; reverting to coarse path with cost {coarse_cost}.")
 
         else:
             print(f"Final path found with {len(q_path)} points after smoothing for cost {new_total_cost}.")
+
+        print("took total time:", time.time() - planner_start_time, "seconds")
+
         return np.array(q_path)
 
     def _is_within_limits(self, q: np.ndarray) -> bool:

@@ -23,11 +23,12 @@ class Obstacle:
         self.waypoints: List[SE3] = []
         self.num_waypoints = num_waypoints
         self.robot_interface = robot_interface
+        self.ground_limit = 0.02
 
         # Collision detection parameters
-        self.arm_radius = 0.12  # meters
-        if self.type == "E":
-            self.arm_radius = 0.08  # meters
+        # self.arm_radius = 0.12  # meters
+        # if self.type == "E":
+        self.arm_radius = 0.1  # meters
 
     def prep_obstacle(self) -> None:
         """Prepare the obstacle by loading, cropping, transforming, and hiding it in a box."""
@@ -181,13 +182,13 @@ class Obstacle:
         dists = []
 
         for waypoint in self.waypoints:
-            for i in range(num_segments):
+            for i in range(2, num_segments):
                 frame_A = fk_frames[i]
                 frame_B = fk_frames[i + 1]
 
-                # Use half the radius for the last segment
+                # Use one-third the radius for the last segment
                 if i == num_segments - 1:
-                    radius = self.arm_radius / 2
+                    radius = self.arm_radius / 3
                 else:
                     radius = self.arm_radius
 
@@ -294,6 +295,10 @@ class Obstacle:
         """
         A = frame_A.translation
         B = frame_B.translation
+
+        if A[2] < self.ground_limit or B[2] < self.ground_limit:
+            # print("Arm below ground limit!")
+            return True, float(0)
 
         # Vector from A to B (the segment)
         v = B - A

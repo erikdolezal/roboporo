@@ -15,6 +15,8 @@ class PathFollowingPlanner:
         self.waypoints = waypoints
         self.q_max = robot_interface.q_max
         self.q_min = robot_interface.q_min
+        self.q_max[0] = np.pi/3
+        self.q_min[0] = -np.pi/3
         self.ik_func = ik_func
         self.Z_LIMIT = 0.02
 
@@ -93,7 +95,7 @@ class PathFollowingPlanner:
 
         # --- Iterative Refinement Planner with Exhaustive Initial Search ---
 
-        def get_transition_cost(candidate_q, prev_q):
+        def get_transition_cost(waypoint, candidate_q, prev_q):
             """Calculates the transition cost from a previous configuration to a candidate."""
             T_pose = SE3().from_homogeneous(self.robot_interface.fk(candidate_q))
 
@@ -112,6 +114,7 @@ class PathFollowingPlanner:
                 + 0.1 * np.linalg.norm(candidate_q[-2:] - (self.robot_interface.q_max[-2:] + self.robot_interface.q_min[-2:]) / 2)
                 + 15 * (-dot_prod)
                 + 10 * (-dist)
+                + 50 * (1-np.dot(waypoint.rotation.rot[:, 2], hoop_pose.rotation.rot[:, 2]))
             )
             return cost if cost < 50 else cost + 200
 
@@ -128,7 +131,7 @@ class PathFollowingPlanner:
             nonlocal min_total_cost, best_q_path
 
             # If we have a complete path, check if it's the best one so far
-            if waypoint_level == 0:
+            if waypoint_level == -1:
                 if current_cost < min_total_cost:
                     min_total_cost = current_cost
                     best_q_path = list(current_path)  # Make a copy
@@ -145,17 +148,17 @@ class PathFollowingPlanner:
 
             next_q = current_path[-1]
             K = 1
-            sorted_candidates = sorted(all_ik_solutions[waypoint_level], key=lambda q: get_transition_cost(q, next_q))
+            sorted_candidates = sorted(all_ik_solutions[waypoint_level], key=lambda q: get_transition_cost(self.waypoints[waypoint_level], q, next_q))
             cheapest_candidates = sorted_candidates[: min(K, len(sorted_candidates))]
             for candidate_q in cheapest_candidates:
-                transition_cost = get_transition_cost(candidate_q, next_q)
+                transition_cost = get_transition_cost(self.waypoints[waypoint_level], candidate_q, next_q)
                 find_best_path_recursive(waypoint_level - 1, current_path + [candidate_q], current_cost + transition_cost)
 
         # Start the recursive search for each possible starting configuration
         print("Starting exhaustive search for the best initial path...")
         for q_end in all_ik_solutions[-1]:
             # The "cost" to start is 0, as there's no transition.
-            find_best_path_recursive(len(all_ik_solutions) - 1, [q_end], 0.0)
+            find_best_path_recursive(len(all_ik_solutions)-2, [q_end], 0.0)
 
         if not best_q_path:
             raise ValueError("Exhaustive search failed to find any valid initial path.")
@@ -163,7 +166,7 @@ class PathFollowingPlanner:
         print(f"Optimal coarse path found with cost: {min_total_cost}")
         q_path = best_q_path[::-1]  # Reverse to get from start to end
 
-        coarse_cost = sum(get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))
+        coarse_cost = sum(get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))
         coarse_path = deepcopy(q_path)
 
         num_smoothing_iterations = 1
@@ -171,7 +174,7 @@ class PathFollowingPlanner:
         print("Starting path smoothing...")
         for iter_num in range(num_smoothing_iterations):
             # Iterate backwards through the path, from the last point to the first
-            for i in range(len(q_path) - 1, -1, -1):
+            for i in range(len(q_path) - 1, 0, -1):
 
                 if planner_start_time + 55 < time.time():
                     print("Smoothing timeout reached.")
@@ -186,7 +189,7 @@ class PathFollowingPlanner:
                     next_q = q_path[i + 1]
                     for q_mid in candidate_qs:
                         # The cost function for the start has no "prev_q"
-                        cost = get_transition_cost(next_q, q_mid)
+                        cost = get_transition_cost(self.waypoints[i+1], next_q, q_mid)
                         if cost < min_total_segment_cost:
                             min_total_segment_cost = cost
                             best_q_for_point = q_mid
@@ -194,7 +197,7 @@ class PathFollowingPlanner:
                     # Last point: only consider cost from the previous point
                     prev_q = q_path[i - 1]
                     for q_mid in candidate_qs:
-                        cost = get_transition_cost(q_mid, prev_q)
+                        cost = get_transition_cost(self.waypoints[i], q_mid, prev_q)
                         if cost < min_total_segment_cost:
                             min_total_segment_cost = cost
                             best_q_for_point = q_mid
@@ -203,8 +206,8 @@ class PathFollowingPlanner:
                     prev_q = q_path[i - 1]
                     next_q = q_path[i + 1]
                     for q_mid in candidate_qs:
-                        cost1 = get_transition_cost(q_mid, prev_q)
-                        cost2 = get_transition_cost(next_q, q_mid)
+                        cost1 = get_transition_cost(self.waypoints[i], q_mid, prev_q)
+                        cost2 = get_transition_cost(self.waypoints[i+1], next_q, q_mid)
 
                         if cost1 == np.inf or cost2 == np.inf:
                             continue
@@ -213,22 +216,22 @@ class PathFollowingPlanner:
                             min_total_segment_cost = total_segment_cost
                             best_q_for_point = q_mid
 
-                old_total_cost = sum(get_transition_cost(q_path[j], q_path[j - 1]) if j > 0 else 0 for j in range(len(q_path)))
+                old_total_cost = sum(get_transition_cost(self.waypoints[j], q_path[j], q_path[j - 1]) if j > 0 else 0 for j in range(len(q_path)))
                 temp_path = q_path.copy()
                 temp_path[i] = best_q_for_point
-                new_total_cost = sum(get_transition_cost(temp_path[j], temp_path[j - 1]) if j > 0 else 0 for j in range(len(temp_path)))
+                new_total_cost = sum(get_transition_cost(self.waypoints[j], temp_path[j], temp_path[j - 1]) if j > 0 else 0 for j in range(len(temp_path)))
 
                 if new_total_cost <= old_total_cost:
                     q_path[i] = best_q_for_point
 
             print(
-                f"  -> Smoothing iteration {iter_num + 1}/{num_smoothing_iterations} complete, new cost {sum(get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))}. "
+                f"  -> Smoothing iteration {iter_num + 1}/{num_smoothing_iterations} complete, new cost {sum(get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))}. "
             )
 
         for i in range(len(q_path)):
-            print(f"transition cost {i}: {get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0}")
+            print(f"transition cost {i}: {get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0}")
 
-        new_total_cost = sum(get_transition_cost(q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))
+        new_total_cost = sum(get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))
 
         if coarse_cost < new_total_cost:
             q_path = coarse_path

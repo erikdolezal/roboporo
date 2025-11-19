@@ -10,7 +10,7 @@ import numpy as np
 import cv2  # noqa
 import matplotlib.pyplot as plt
 
-VIS = False
+VIS = True
 
 def find_hoop_homography(images: ArrayLike, hoop_positions: List[dict]) -> np.ndarray:
     """

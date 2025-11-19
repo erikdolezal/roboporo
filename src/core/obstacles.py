@@ -28,7 +28,7 @@ class Obstacle:
         # Collision detection parameters
         # self.arm_radius = 0.12  # meters
         # if self.type == "E":
-        self.arm_radius = 0.1  # meters
+        self.arm_radius = 0.07  # meters
         
         # Major and minor radius of the torus obstacle
         self.major_radius = 0.06 / 2 # meters
@@ -123,7 +123,7 @@ class Obstacle:
         prev_tangent = None
         prev_position = None
         for i in range(len(tangents)):
-            if prev_tangent is None or np.dot(tangents[i], prev_tangent) < np.cos(np.deg2rad(10)) or i == len(tangents) - 1 or np.linalg.norm(positions[i] - prev_position) > 0.03:
+            if prev_tangent is None or np.dot(tangents[i], prev_tangent) < np.cos(np.deg2rad(15)) or i == len(tangents) - 1 or np.linalg.norm(positions[i] - prev_position) > 0.03:
                 prev_position = positions[i].copy()
                 prev_tangent = tangents[i].copy()
                 tangent = tangents[i]
@@ -192,7 +192,7 @@ class Obstacle:
 
                 # Use one-third the radius for the last segment
                 if i == num_segments - 1:
-                    radius = self.arm_radius / 3
+                    radius = self.arm_radius / 2
                 else:
                     radius = self.arm_radius
 
@@ -285,19 +285,19 @@ class Obstacle:
     def set_crop_limits(self) -> None:
         """Set cropping limits based on obstacle type."""
         if self.type == "A":
-            self.start = 0.005
+            self.start = 0.03
             self.end = 10.0
         elif self.type == "B":
-            self.start = 0.005
+            self.start = 0.03
             self.end = 10.0
         elif self.type == "C":
-            self.start = 0.005
+            self.start = 0.03
             self.end = 10.0
         elif self.type == "D":
-            self.start = 0.005
+            self.start = 0.03
             self.end = 10.0
         elif self.type == "E":
-            self.start = 0.005
+            self.start = 0.03
             self.end = 10.0
         else:
             raise ValueError(f"Unknown obstacle type: {self.type}")
@@ -322,13 +322,13 @@ class Obstacle:
         # Projection of w onto v
         dot_vv = np.dot(v, v)
         if dot_vv < 1e-9:  # Segment is effectively a point
-            return False, float("inf")
+            return False, 0.2
 
         t = np.dot(w, v) / dot_vv
 
         # Only consider orthogonal projections that lie strictly on the segment
         if not (0.0 < t < 1.0):
-            return False, float("inf")
+            return False, 0.2
 
         closest_point_on_segment = A + t * v
         distance = np.linalg.norm(point_P - closest_point_on_segment)

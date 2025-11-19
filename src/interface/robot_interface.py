@@ -84,7 +84,7 @@ class RobotInterface:
 
     def calibrate_camera(self):
         x_positions = np.arange(0.35, 0.56, 0.05)
-        y_positions = np.arange(-0.2, 0.21, 0.05)
+        y_positions = np.arange(-0.2, 0.18, 0.04)
         target_positions = np.array([[x, y, 0.045] for x in x_positions for y in y_positions])
         images = []
         real_positions = []
@@ -115,7 +115,7 @@ class RobotInterface:
         assert ids is not None, "No aruco found" 
 
         target_corners = np.array([project_homography(self.camera2robot_H, corner_set[0]) for corner_set in corners]).reshape(-1, 2)
-        target_corners = np.hstack((target_corners, 0.04*np.ones((target_corners.shape[0], 1))))
+        target_corners = np.hstack((target_corners, 0.035*np.ones((target_corners.shape[0], 1))))
 
         aruco_corners = np.array([aruco_config[id[0]]["corners"] for id in ids]).reshape(-1, 3) if ids is not None else np.array([[]])
 

@@ -108,7 +108,7 @@ class Obstacle:
                 # Middle points: use central difference
                 tangent = self.line_final[i + 1] - self.line_final[i - 1]
 
-            _, _, Vt = np.linalg.svd(self.line_final[max(0, i - 4) : min(len(self.line_final), i + 5)] - position)
+            _, _, Vt = np.linalg.svd(self.line_final[max(0, i - 10) : min(len(self.line_final), i + 11)] - position)
 
             if np.dot(tangent, Vt[0]) < 0:
                 tangent = -Vt[0]
@@ -120,10 +120,19 @@ class Obstacle:
             positions.append(position)
             tangents.append(tangent)
 
-        prev_tangent = None
-        prev_position = None
+        tangents[-1] = np.array([0,0,-1])
+
+        prev_tangent = tangents[0]
+        prev_position = positions[0]
+        dist_th = 0.02
         for i in range(len(tangents)):
-            if prev_tangent is None or np.dot(tangents[i], prev_tangent) < np.cos(np.deg2rad(15)) or i == len(tangents) - 1 or np.linalg.norm(positions[i] - prev_position) > 0.03:
+            dist = np.linalg.norm(positions[i] - prev_position)
+            dot_product = np.dot(tangents[i], prev_tangent)
+            if (i == 0 or 
+                i == len(tangents) - 1 or
+                (dist < dist_th and dot_product < np.cos(np.deg2rad(20))) or
+                (dist >= dist_th and dot_product < np.cos(np.deg2rad(5))) or
+                dist > 0.03):
                 prev_position = positions[i].copy()
                 prev_tangent = tangents[i].copy()
                 tangent = tangents[i]
@@ -171,6 +180,8 @@ class Obstacle:
         start_position = first_se3.translation + 0.05 * first_tangent  # 5 cm = 0.05 m
         start_se3 = SE3(translation=start_position, rotation=first_se3.rotation)
         se3_list.insert(0, start_se3)
+        extra_first_pos = start_position + np.array([0,0,0.05])
+        #se3_list.insert(0, SE3(translation=extra_first_pos, rotation=first_se3.rotation))
 
         self.waypoints = se3_list
         return se3_list
@@ -196,7 +207,7 @@ class Obstacle:
                 else:
                     radius = self.arm_radius
 
-                collision, dist = self.check_segment_to_point_collision(frame_A, frame_B, waypoint.translation, radius)
+                collision, dist = self.check_segment_to_point_collision(i, frame_A, frame_B, waypoint.translation, radius)
                 dists.append(dist)
                 if collision:
                     # print(f"Collision detected at arm segment {i} with waypoint at {waypoint.translation}")
@@ -285,30 +296,35 @@ class Obstacle:
     def set_crop_limits(self) -> None:
         """Set cropping limits based on obstacle type."""
         if self.type == "A":
-            self.start = 0.03
+            self.start = 0.025
             self.end = 10.0
         elif self.type == "B":
-            self.start = 0.03
+            self.start = 0.025
             self.end = 10.0
         elif self.type == "C":
-            self.start = 0.03
+            self.start = 0.025
             self.end = 10.0
         elif self.type == "D":
-            self.start = 0.03
+            self.start = 0.025
             self.end = 10.0
         elif self.type == "E":
-            self.start = 0.03
+            self.start = 0.025
             self.end = 10.0
         else:
             raise ValueError(f"Unknown obstacle type: {self.type}")
 
-    def check_segment_to_point_collision(self, frame_A: SE3, frame_B: SE3, point_P: np.ndarray, radius: float) -> tuple[bool, float]:
+    def check_segment_to_point_collision(self, idx, frame_A: SE3, frame_B: SE3, point_P: np.ndarray, radius: float) -> tuple[bool, float]:
         """
         Calculates the minimum distance between a line segment (A-B) and a point (P).
         Returns True if the distance is less than or equal to the given radius.
         """
         A = frame_A.translation
         B = frame_B.translation
+
+        clearance2 = 1
+
+        
+
 
         if A[2] < self.ground_limit or B[2] < self.ground_limit:
             # print("Arm below ground limit!")
@@ -326,13 +342,25 @@ class Obstacle:
 
         t = np.dot(w, v) / dot_vv
 
-        # Only consider orthogonal projections that lie strictly on the segment
-        if not (0.0 < t < 1.0):
-            return False, 0.2
+        #Only consider orthogonal projections that lie strictly on the segment
+        
+        
+        if idx == 4:
+            t_clamped = np.maximum(0, np.minimum(1, t))
 
-        closest_point_on_segment = A + t * v
-        distance = np.linalg.norm(point_P - closest_point_on_segment)
+            closest_on_segment = A + t_clamped * v
+            distance = np.linalg.norm(point_P - closest_on_segment)
+
+        else:
+            if not (0.0 < t < 1.0):
+                return False, 0.2
+
+            closest_point_on_segment = A + t * v
+            distance = np.linalg.norm(point_P - closest_point_on_segment)
+        
         clearance = distance - radius
+        
+        
 
         return bool(clearance <= 0.0), float(clearance if bool(clearance >= 0.0) else 0)
 

@@ -115,8 +115,10 @@ class PathFollowingPlanner:
                 + 15 * (-dot_prod)
                 + 10 * (-dist)
                 + 50 * (1-np.dot(waypoint.rotation.rot[:, 2], hoop_pose.rotation.rot[:, 2]))
+
+                + 20
             )
-            return cost if cost < 50 else cost + 200
+            return cost if cost < 100 else cost + 200
 
         for waypoint_idx, sols in enumerate(all_ik_solutions):
             print(f"All search waypoint {waypoint_idx} has {len(sols)} IK solutions.")

@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from configs.aruco_config import aruco_config
 from src.core.planning_michal import PathFollowingPlanner as PlannerGreedyBckwrd
 from src.core.helpers import visualize_homography, project_homography, draw_3d_frame
+from src.core.RRT_planner import RRTPlanner
 
 
 def main(args):
@@ -34,6 +35,11 @@ def main(args):
             init_planner = PlannerGreedyBckwrd(robot, obstacle, maze_waypoints, robot.hoop_ik)
             best_q_list = np.array(init_planner.get_list_of_best_q())
 
+
+
+
+
+
             fig = plt.figure(figsize=(8, 8), layout="tight")
             ax = fig.add_subplot(111, projection="3d")
             ax.view_init(elev=40.0, azim=-150)
@@ -54,6 +60,10 @@ def main(args):
             ax.set_ylabel("y")
             ax.set_zlabel("z")
             plt.show()
+
+
+            #rrt = RRTPlanner(robot, obstacle)
+            #robot.follow_q_list(rrt.plan(robot.get_q(), best_q_list[0]))
 
             robot.follow_q_list(best_q_list)
 

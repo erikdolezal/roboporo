@@ -33,8 +33,8 @@ class PathFollowingPlanner:
                 roll_angles_deg = [0]
             else:
                 # For all other waypoints, include tilt and roll
-                tilt_angles_deg = [-45, -30, -15, -5, 0, 5, 15, 30, 45]  # Degrees of tilt around Y
-                roll_angles_deg = [-45, -30, -15, -5, 0, 5, 15, 30, 45]  # Degrees of roll around X
+                tilt_angles_deg = [-35, -15, -5, 0, 5, 15, 35]  # Degrees of tilt around Y
+                roll_angles_deg = [-35, -15, -5, 0, 5, 15, 35]  # Degrees of roll around X
             tilt_angles_rad = [np.radians(deg) for deg in tilt_angles_deg]
             roll_angles_rad = [np.radians(deg) for deg in roll_angles_deg]
 
@@ -101,7 +101,7 @@ class PathFollowingPlanner:
 
             hoop_pose = self.robot_interface.hoop_fk(candidate_q)
             hoop_x_axis = hoop_pose.rotation.rot[:, 0]
-            me_vector = np.array([1, 0, -1])
+            me_vector = np.array([0, 0, -1])
             dot_prod = np.dot(hoop_x_axis, me_vector)
             collision, dist = self.obstacle.check_arm_colision(candidate_q)
             # collision_in_path_cost = 1000 if self.obstacle.is_path_viable(prev_q, candidate_q) else 0
@@ -113,12 +113,12 @@ class PathFollowingPlanner:
                 + 1 * np.sum(np.maximum(0, self.Z_LIMIT * 2 - T_pose.translation[2]))
                 + 0.1 * np.linalg.norm(candidate_q[-2:] - (self.robot_interface.q_max[-2:] + self.robot_interface.q_min[-2:]) / 2)
                 + 15 * (-dot_prod)
-                + 10 * (-dist)
-                + 50 * (1-np.dot(waypoint.rotation.rot[:, 2], hoop_pose.rotation.rot[:, 2]))
+                + 20 * (-dist)
+                + 70 * (1-np.dot(waypoint.rotation.rot[:, 2], hoop_pose.rotation.rot[:, 2]))
 
                 + 20
             )
-            return cost if cost < 100 else cost + 200
+            return cost if cost < 200 else cost + 200
 
         for waypoint_idx, sols in enumerate(all_ik_solutions):
             print(f"All search waypoint {waypoint_idx} has {len(sols)} IK solutions.")
@@ -141,7 +141,7 @@ class PathFollowingPlanner:
                 return
 
             # Pruning: If the current path is already more expensive than the best found so far, stop.
-            if current_cost * 1.2 >= min_total_cost:
+            if current_cost * 1.5 >= min_total_cost:
                 return
 
             if start_time + 42 < time.time():

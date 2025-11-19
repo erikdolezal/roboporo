@@ -28,7 +28,7 @@ class Obstacle:
         # Collision detection parameters
         # self.arm_radius = 0.12  # meters
         # if self.type == "E":
-        self.arm_radius = 0.07  # meters
+        self.arm_radius = 0.085  # meters
         
         # Major and minor radius of the torus obstacle
         self.major_radius = 0.06 / 2 # meters
@@ -130,7 +130,7 @@ class Obstacle:
             dot_product = np.dot(tangents[i], prev_tangent)
             if (i == 0 or 
                 i == len(tangents) - 1 or
-                (dist < dist_th and dot_product < np.cos(np.deg2rad(20))) or
+                (dist < dist_th and dot_product < np.cos(np.deg2rad(25))) or
                 (dist >= dist_th and dot_product < np.cos(np.deg2rad(5))) or
                 dist > 0.03):
                 prev_position = positions[i].copy()
@@ -345,7 +345,8 @@ class Obstacle:
         #Only consider orthogonal projections that lie strictly on the segment
         
         
-        if idx == 4:
+        if idx == 4 or idx == 6:
+            print(idx)
             t_clamped = np.maximum(0, np.minimum(1, t))
 
             closest_on_segment = A + t_clamped * v

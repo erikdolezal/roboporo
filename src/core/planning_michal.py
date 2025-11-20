@@ -108,7 +108,7 @@ class PathFollowingPlanner:
         hoop_x_axis = hoop_pose.rotation.rot[:, 0]
         me_vector = np.array([0, 0, -1])
         dot_prod = np.dot(hoop_x_axis, me_vector)
-        collision, dist = self.obstacle.check_arm_colision(candidate_q)
+        collision, dist, circle_dist = self.obstacle.check_arm_colision(candidate_q)
         # collision_in_path_cost = 1000 if self.obstacle.is_path_viable(prev_q, candidate_q) else 0
 
         # important to tune dot prod weight
@@ -120,6 +120,7 @@ class PathFollowingPlanner:
             + 15 * (-dot_prod)
             + 20 * (-dist)
             + 70 * (1 - np.dot(waypoint.rotation.rot[:, 2], hoop_pose.rotation.rot[:, 2]))
+            + 10 * (1 if circle_dist < 0.01 else 0)
             + 20
         )
         return cost if cost < 60 else cost + 200  ## neeeds to change constant for penalty if weights adjusted!!!

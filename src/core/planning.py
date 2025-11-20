@@ -155,7 +155,7 @@ class PathFollowingPlanner:
             hoop_x_axis = hoop_pose.rotation.rot[:, 0]
             me_vector = np.array([1, 0, -3])
             dot_prod = np.dot(hoop_x_axis, me_vector)
-            collision, dist = self.obstacle.check_arm_colision(candidate_q)
+            collision, dist, hoop_dist = self.obstacle.check_arm_colision(candidate_q)
             # collision_in_path_cost = 1000 if self.obstacle.is_path_viable(prev_q, candidate_q) else 0
 
             cost = (

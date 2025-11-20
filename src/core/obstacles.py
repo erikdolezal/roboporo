@@ -1,5 +1,6 @@
 import time
 import os
+from cv2 import circle
 import numpy as np
 from src.core.se3 import SE3
 from src.core.so3 import SO3
@@ -205,7 +206,7 @@ class Obstacle:
         self.waypoints = se3_list
         return se3_list
 
-    def check_arm_colision(self, true_q: np.ndarray) -> tuple[bool, float]:
+    def check_arm_colision(self, true_q: np.ndarray) -> tuple[bool, float, float]:
         """
         Check if the robot arm at configuration true_q collides with any of the obstacle's waypoints.
         The last segment of the arm has a smaller collision radius.
@@ -215,7 +216,7 @@ class Obstacle:
         fk_frames.append(fk_frames[-1] * self.hoop_stick)  # Append end-effector frame again for hoop collision check
 
         if len(self.colision_points) == 0:
-            return False, 0.4
+            return False, 0.4, 0.035
 
         # Convert collision points to numpy array for vectorized operations
         collision_points_array = np.array(self.colision_points)  # Shape: (N, 3)
@@ -243,9 +244,17 @@ class Obstacle:
             if np.any(collisions):
                 # Find the first collision (to maintain same behavior as original)
                 collision_idx = np.where(collisions)[0][0]
-                return True, float(dists[collision_idx])
+                return True, float(dists[collision_idx]), 0.033
 
-        return False, float(min(all_dists))
+        circle_collisions, circle_dists = self.check_circle_to_point_collision_vectorized(fk_frames[-1], collision_points_array)
+        if np.any(circle_collisions):
+
+            collision_idx = np.where(circle_collisions)[0][0]
+            # print(f"circle_dists: {circle_dists}, collision_idx: {collision_idx}")
+            # print(f"hoop {fk_frames[-1]} colided with points: {collision_points_array[collision_idx]} at idx {collision_idx}")
+            return True, float(circle_dists[collision_idx]), float(min(all_dists))
+
+        return False, float(min(all_dists)), float(min(circle_dists))
 
     def check_segment_to_point_collision(self, idx, frame_A: SE3, frame_B: SE3, point_P: np.ndarray, radius: float) -> tuple[bool, float]:
         """
@@ -311,6 +320,58 @@ class Obstacle:
         clearance = distance - radius
 
         return bool(clearance <= 0.0), float(clearance if bool(clearance >= 0.0) else 0)
+
+    def check_circle_to_point_collision_vectorized(self, circle_SE3: SE3, points_P: np.ndarray, circle_radius: float = 0.03, collision_threshold: float = 0.004) -> tuple[np.ndarray, list[float]]:
+        """
+        Vectorized collision detection between a hoop ring and multiple points for wire threading.
+        Only detects collision when wire actually hits the ring material, never for center-passing wire.
+        Calculates true 3D distance from points to the torus surface.
+
+        Args:
+            circle_SE3: SE3 transformation defining the circle's position and orientation
+            points_P: Array of points to check collision against, shape (N, 3)
+            circle_radius: Major radius of the circle (distance from center to the ring)
+            collision_threshold: Thickness of the ring material for collision detection
+
+        Returns:
+            tuple: (collision_array, distances_list) where collision_array is boolean array of shape (N,)
+                   and distances_list contains the clearance distances for each point
+        """
+        # Transform points to the local frame of the circle
+        # The circle is defined in the xy-plane of the local frame
+        R = circle_SE3.rotation.rot
+        t = circle_SE3.translation
+
+        # Vector from circle center to points in world frame
+        diff_world = points_P - t
+
+        # Transform to local frame: v_local = v_world @ R (since R columns are local axes)
+        points_local = diff_world @ R
+
+        # Calculate distance to the ring in the local frame
+        # The ring is a torus in the xy-plane with major radius `circle_radius`
+        # and minor radius `collision_threshold`.
+
+        # Radial distance in xy-plane (distance from z-axis)
+        rho = np.linalg.norm(points_local[:, :2], axis=1)
+
+        # Vertical distance (z-axis component)
+        z = points_local[:, 2]
+
+        # Distance from the point to the circular centerline of the torus
+        # This considers both the radial distance difference and the height difference
+        dist_to_centerline = np.sqrt((rho - circle_radius) ** 2 + z**2)
+
+        # Clearance is distance to the surface of the ring (minor radius is collision_threshold)
+        # If dist_to_centerline < collision_threshold, the point is inside the ring material
+        clearances = dist_to_centerline - collision_threshold
+
+        collisions = clearances <= 0.0
+
+        # For return, we want distances to be 0.0 if collision, else the clearance
+        distances = np.where(clearances >= 0.0, clearances, 0.0)
+
+        return collisions, distances.tolist()
 
     def check_segment_to_points_collision_vectorized(self, idx: int, frame_A: SE3, frame_B: SE3, points_P: np.ndarray, radius: float) -> tuple[np.ndarray, list[float]]:
         """
@@ -421,7 +482,7 @@ class Obstacle:
             bool: True if the path is viable (collision-free), False otherwise.
         """
         # Check the start and end points first as a quick test.
-        if self.check_arm_colision(q_start) or self.check_arm_colision(q_end):
+        if self.check_arm_colision(q_start)[0] or self.check_arm_colision(q_end)[0]:
             return False
 
         # Interpolate between the start and end configurations.
@@ -430,7 +491,7 @@ class Obstacle:
             q_interp = (1 - alpha) * q_start + alpha * q_end
 
             # Check for collision at the interpolated point.
-            if self.check_arm_colision(q_interp):
+            if self.check_arm_colision(q_interp)[0]:
                 # Uncomment the line below for debugging to see where collisions occur.
                 # print(f"Collision detected during path viability check at step {i}/{num_steps}")
                 return False

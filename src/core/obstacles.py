@@ -19,7 +19,7 @@ class Obstacle:
         self.start = start
         self.end = end
         self.box = None
-        self.box_offset = np.array([0.1, 0.1, 0.1])
+        self.box_offset = np.array([0.04, 0.04, 0.04])
         self.waypoints: List[SE3] = []
         self.num_waypoints = num_waypoints
         self.robot_interface = robot_interface
@@ -40,6 +40,7 @@ class Obstacle:
         self.set_crop_limits()
         self.crop_centerline_z()
         self.tranform_centerline()
+        self.hide_in_box()
         self.sample_centerline_points(num_points=self.num_waypoints)
         # self.hide_in_box(offset=self.box_offset)
 
@@ -255,43 +256,50 @@ class Obstacle:
         if self.check_arm_colision(q)[0]:
             return True
         
-        T_hoop = self.robot_interface.hoop_fk(q)
-        T_hoop_inv = T_hoop.inverse()
-        line_snippet = self.line_final[
-            (self.line_final[:, 2] >= segment[0]) & (self.line_final[:, 2] <= segment[1])
-        ]
-        line_transformed = np.array([T_hoop_inv.act(point) for point in line_snippet])
-        
-        z_dis_center = line_transformed[:, 2]
-        xy_dis_center = np.linalg.norm(line_transformed[:, :2], axis=1)\
-            
-        if not np.any(np.abs(z_dis_center) <= self.major_radius) :
-            return True
-        
-        if np.any(np.abs(z_dis_center) <= self.major_radius*0.5) and np.any(np.abs(xy_dis_center - self.major_radius) >= self.major_radius):
-            return True
-        
-        distances = self.SDF_torus(line_transformed.T)
-        if np.any(distances <= 0):
+        if self.check_hoop_in_box(q):
             return True
         
         return False
 
     # ----------------------Inner-Helper-Functions-----------------------------------------------
 
-    def SDF_torus(self, points: np.ndarray) -> np.ndarray[float]:
-        """Signed Distance Function for a torus centered at the origin in the XY plane.
-
+    
+    def check_hoop_in_box(self, q: np.ndarray) -> bool:
+        """Check if the robot hoop at configuration q is inside the collision box.
         Args:
-            point (np.ndarray): A point (x, y, z)
-
+            q (np.ndarray): The joint configuration of the robot.
         Returns:
-            float: The signed distance from the point to the surface of the torus.
+            bool: True if the hoop is inside the box, False otherwise.
         """
-        x, y, z = points
-        p = np.sqrt(x**2 + y**2) - self.major_radius
-        d = np.array(np.sqrt(p**2 + z**2) - self.minor_radius)
-        return d
+        
+        if self.box is None:
+            raise ValueError("Collision box not defined. Call hide_in_box() first.")
+        
+        hoop_position = self.robot_interface.hoop_fk(q).translation
+        
+        min_box, max_box = self.box
+        
+        if (min_box[0] <= hoop_position[0] <= max_box[0] and
+            min_box[1] <= hoop_position[1] <= max_box[1] and
+            min_box[2] <= hoop_position[2] <= max_box[2]):
+            return True
+        else:
+            return False
+    
+    def hide_in_box(self) -> None:
+        """Hide puzzle in the collision box
+        """
+        if self.line_final is None:
+            raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
+        
+        min_z = -0.05
+        max_z = np.max(self.line_final[:, 2]) + self.box_offset[2]
+        min_y = np.min(self.line_final[:, 1]) - self.box_offset[1]
+        max_y = np.max(self.line_final[:, 1]) + self.box_offset[1]
+        min_x = np.min(self.line_final[:, 0]) - self.box_offset[0]
+        max_x = np.max(self.line_final[:, 0]) + self.box_offset[0]
+        
+        self.box = (np.array([min_x, min_y, min_z]), np.array([max_x, max_y, max_z]))
     
     def set_crop_limits(self) -> None:
         """Set cropping limits based on obstacle type."""
@@ -497,6 +505,35 @@ class Obstacle:
             robot_lines.append(hoop_line)
             # Update the title to show progress
             ax.set_title(f"Robot Path Visualization (Step {i+1}/{len(q_path)})")
+            
+            # Draw collision box
+            if self.box is not None:
+                min_box, max_box = self.box
+                box_lines = [
+                    # Bottom face
+                    ([min_box[0], min_box[1], min_box[2]], [max_box[0], min_box[1], min_box[2]]),
+                    ([max_box[0], min_box[1], min_box[2]], [max_box[0], max_box[1], min_box[2]]),
+                    ([max_box[0], max_box[1], min_box[2]], [min_box[0], max_box[1], min_box[2]]),
+                    ([min_box[0], max_box[1], min_box[2]], [min_box[0], min_box[1], min_box[2]]),
+                    # Top face
+                    ([min_box[0], min_box[1], max_box[2]], [max_box[0], min_box[1], max_box[2]]),
+                    ([max_box[0], min_box[1], max_box[2]], [max_box[0], max_box[1], max_box[2]]),
+                    ([max_box[0], max_box[1], max_box[2]], [min_box[0], max_box[1], max_box[2]]),
+                    ([min_box[0], max_box[1], max_box[2]], [min_box[0], min_box[1], max_box[2]]),
+                    # Vertical edges
+                    ([min_box[0], min_box[1], min_box[2]], [min_box[0], min_box[1], max_box[2]]),
+                    ([max_box[0], min_box[1], min_box[2]], [max_box[0], min_box[1], max_box[2]]),
+                    ([max_box[0], max_box[1], min_box[2]], [max_box[0], max_box[1], max_box[2]]),
+                    ([min_box[0], max_box[1], min_box[2]], [min_box[0], max_box[1], max_box[2]]),
+                ]
+                for line_start, line_end in box_lines:
+                    (box_line,) = ax.plot(
+                        [line_start[0], line_end[0]],
+                        [line_start[1], line_end[1]],
+                        [line_start[2], line_end[2]],
+                        "k--", linewidth=1
+                    )
+                    robot_lines.append(box_line)   
 
             # Pause to create the animation effect
             plt.pause(0.25)

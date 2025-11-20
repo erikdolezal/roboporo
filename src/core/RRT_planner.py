@@ -19,8 +19,8 @@ class RRTPlanner:
         self.tree = {}  # key: tuple(q), value: Node
         
         self.seed_q = None
-        self.seed_sigma = 0.3
-        self.seed_probability = 0.7
+        self.seed_sigma = 0.1
+        self.seed_probability = 0.6
         
     def plan(self, start_q: np.ndarray, goal_q: np.ndarray) -> list[np.ndarray]:
         """
@@ -34,10 +34,10 @@ class RRTPlanner:
             rand_q = self.sample_random_configuration(goal_q)
             nearest_node = self.find_nearest_node(rand_q)
             new_q = self.steer_towards(nearest_node.q, rand_q)
-            #print(f"Iteration {iteration}: Trying to add node at {new_q}, distance to goal: {np.linalg.norm(new_q - goal_q)}")
             if not self.check_collision(new_q):
                 new_node = self.Node(new_q, parent=nearest_node)
                 self.tree[tuple(new_q)] = new_node
+                self.check_best_seed(goal_q, new_q)
                 
                 if np.linalg.norm(new_q - goal_q) < self.goal_tol:
                     goal_node = self.Node(goal_q, parent=new_node)
@@ -49,6 +49,16 @@ class RRTPlanner:
             
         print("Failed to find a path within the maximum iterations.")
         return []  # No path found
+    
+    def path_smooth(self):
+        """Placeholder for path smoothing method."""
+        # TODO: Implement path smoothing if needed
+        pass  
+    
+    def check_best_seed(self, goal: np.ndarray, new: np.ndarray) -> None:
+        """Updates the seed configuration to the best node found so far towards the goal."""
+        if self.seed_q is None or np.linalg.norm(new - goal) < np.linalg.norm(self.seed_q - goal):
+            self.seed_q = new.copy()
     
     def sample_random_configuration(self, q_goal: np.ndarray, goal_bias: float = 0.1) -> np.ndarray:
         """Samples a random configuration within the robot's joint limits."""

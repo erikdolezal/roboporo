@@ -11,7 +11,9 @@ from src.interface.robot_interface import RobotInterface
 
 
 class Obstacle:
-    def __init__(self, robot_interface: RobotInterface, type: str, path: str, transform: SE3, start: float = 0.04, end: float = 10.0, num_waypoints: int = 20) -> None:
+    def __init__(
+        self, robot_interface: RobotInterface, type: str, path: str, transform: SE3, start: float = 0.04, end: float = 10.0, num_waypoints: int = 20, num_of_colision_points: int = 22
+    ) -> None:
         self.type = type
         self.path = path
         self.transform = transform
@@ -25,11 +27,18 @@ class Obstacle:
         self.num_waypoints = num_waypoints
         self.robot_interface = robot_interface
         self.ground_limit = 0.02
+        self.colision_points: list[np.ndarray] = []
+        self.num_of_colision_points = num_of_colision_points
+        self.hoop_stick = SE3(translation=np.array([-0.1, 0.0, 0.0]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 180.0, 0.0])), "xyz"))
 
         # Collision detection parameters
         # self.arm_radius = 0.12  # meters
         # if self.type == "E":
-        self.arm_radius = 0.085  # meters
+        # self.arm_radius = 0.085  # DEPRICATED FOR COLISSION CHECKING
+
+        self.thick_arm_radius = 0.085  # meters
+        self.end_arm_radius = 0.05  # meters
+        self.hoop_stick_radius = 0.03  # meters
 
         # Major and minor radius of the torus obstacle
         self.major_radius = 0.06 / 2  # meters
@@ -43,6 +52,7 @@ class Obstacle:
         self.tranform_centerline()
         self.hide_in_box()
         self.sample_centerline_points(num_points=self.num_waypoints)
+        self.colision_points = self.get_colision_points(num_of_colision_points=self.num_of_colision_points)
         # self.hide_in_box(offset=self.box_offset)
 
         fig = plt.figure(figsize=(8, 8), layout="tight")
@@ -61,6 +71,18 @@ class Obstacle:
         ax.set_ylabel("y")
         ax.set_zlabel("z")
         plt.show()
+
+    def get_colision_points(self, num_of_colision_points=30) -> np.ndarray:
+        """Get 50 evenly spaced colision points along the centerline."""
+        if self.line_final is None:
+            raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
+        if num_of_colision_points > 0:
+            total_points = len(self.line_final)
+            step = total_points / num_of_colision_points
+            points = [self.line_final[int(i * step)] for i in range(num_of_colision_points)]
+            return np.array(points)
+        points = []
+        return np.array(points)
 
     def get_centerline(self) -> np.ndarray:
         """Get the transformed centerline points."""
@@ -187,29 +209,107 @@ class Obstacle:
         Check if the robot arm at configuration true_q collides with any of the obstacle's waypoints.
         The last segment of the arm has a smaller collision radius.
         """
+
         fk_frames = self.fk_for_all(true_q)
-        num_segments = len(fk_frames) - 1
+        fk_frames.append(fk_frames[-1] * self.hoop_stick)  # Append end-effector frame again for hoop collision check
+        # num_segments = len(fk_frames)
         # print("num_segments:", num_segments)
         dists = []
-
-        for waypoint in self.waypoints:
-            for i in [3, 5]:
+        for i in [3, 5, 6]:
+            for collision_point in self.colision_points:
                 frame_A = fk_frames[i]
                 frame_B = fk_frames[i + 1]
 
-                # Use one-third the radius for the last segment
-                if i == 5:
-                    radius = self.arm_radius / 2
-                else:
-                    radius = self.arm_radius
+                # print(f"Checking collision for arm segment {i} of length {np.linalg.norm(frame_B.translation - frame_A.translation)}")
 
-                collision, dist = self.check_segment_to_point_collision(i, frame_A, frame_B, waypoint.translation, radius)
+                # time.sleep(0.5)
+
+                # Use one-third the radius for the last segment
+                if i == 3:  # thick segment
+                    radius = self.thick_arm_radius
+                elif i == 5:  # end segment
+                    radius = self.end_arm_radius
+                elif i == 6:  # hoop stick
+                    radius = self.hoop_stick_radius
+
+                collision, dist = self.check_segment_to_point_collision(i, frame_A, frame_B, collision_point, radius)
                 dists.append(dist)
                 if collision:
                     # print(f"Collision detected at arm segment {i} with waypoint at {waypoint.translation}")
                     return True, float(dist)
 
         return False, float(min(dists))
+
+    def check_segment_to_point_collision(self, idx, frame_A: SE3, frame_B: SE3, point_P: np.ndarray, radius: float) -> tuple[bool, float]:
+        """
+        Calculates the minimum distance between a line segment (A-B) and a point (P).
+        Returns True if the distance is less than or equal to the given radius.
+        """
+        A = frame_A.translation
+        B = frame_B.translation
+        v = B - A
+
+        if A[2] - radius < self.ground_limit or B[2] - radius < self.ground_limit:
+            # ground check
+            segment_length = np.linalg.norm(v)
+            if segment_length < 1e-9:  # Degenerate case: A ≈ B
+                min_z = min(A[2], B[2])
+                clearance = min_z - radius - self.ground_limit
+            else:
+                u = v / segment_length
+
+                if abs(u[2]) > 0.999:  # Nearly vertical cylinder
+                    radius_z_component = 0
+                else:
+
+                    # The z-component of the perpendicular vector pointing most downward is:
+                    # -sqrt(u[0]² + u[1]²) = -sqrt(1 - u[2]²)
+                    horizontal_component = np.sqrt(u[0] ** 2 + u[1] ** 2)  # = sqrt(1 - u[2]²)
+                    radius_z_component = radius * horizontal_component
+
+                surface_z_at_A = A[2] - radius_z_component
+                surface_z_at_B = B[2] - radius_z_component
+                min_z = min(surface_z_at_A, surface_z_at_B)
+
+                clearance = min_z - self.ground_limit
+
+            if clearance <= 0.0:
+                # print("Ground collision detected.")
+                return True, 0.0
+
+        # Vector from A to B (the segment)
+
+        # Vector from A to P
+        w = point_P - A
+
+        # Projection of w onto v
+        dot_vv = np.dot(v, v)
+        if dot_vv < 1e-9:  # Segment is effectively a point
+            return False, 0.2
+
+        t = np.dot(w, v) / dot_vv
+
+        # Only consider orthogonal projections that lie strictly on the segment
+
+        if idx == 3:
+            t = np.maximum(0, np.minimum(1, t))
+
+        else:
+            if not (0.0 < t < 1.0):
+                return False, 0.4
+
+        closest_point = A + t * v
+        distance = np.linalg.norm(point_P - closest_point)
+
+        clearance = distance - radius
+
+        return bool(clearance <= 0.0), float(clearance if bool(clearance >= 0.0) else 0)
+
+    """
+    def mb_check_hoop_collision(self, end_of_arm: np.ndarray, point_P: np.ndarray) -> tuple[bool, float]:
+        hoop_stick = SE3(translation=np.array([-0.1, 0.0, 0.0]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 180.0, 0.0])), "xyz"))
+        hoop_center = end_of_arm * hoop_stick.translation
+    """
 
     def is_path_viable(self, q_start: np.ndarray, q_end: np.ndarray, num_steps: int = 5) -> bool:
         """
@@ -311,74 +411,6 @@ class Obstacle:
             self.end = 10.0
         else:
             raise ValueError(f"Unknown obstacle type: {self.type}")
-
-    def check_segment_to_point_collision(self, idx, frame_A: SE3, frame_B: SE3, point_P: np.ndarray, radius: float) -> tuple[bool, float]:
-        """
-        Calculates the minimum distance between a line segment (A-B) and a point (P).
-        Returns True if the distance is less than or equal to the given radius.
-        """
-        A = frame_A.translation
-        B = frame_B.translation
-        v = B - A
-
-        if A[2] - radius < self.ground_limit or B[2] - radius < self.ground_limit:
-            # ground check
-            segment_length = np.linalg.norm(v)
-            if segment_length < 1e-9:  # Degenerate case: A ≈ B
-                min_z = min(A[2], B[2])
-                clearance = min_z - radius - self.ground_limit
-            else:
-                u = v / segment_length
-
-                if abs(u[2]) > 0.999:  # Nearly vertical cylinder
-                    radius_z_component = 0
-                else:
-
-                    # The z-component of the perpendicular vector pointing most downward is:
-                    # -sqrt(u[0]² + u[1]²) = -sqrt(1 - u[2]²)
-                    horizontal_component = np.sqrt(u[0] ** 2 + u[1] ** 2)  # = sqrt(1 - u[2]²)
-                    radius_z_component = radius * horizontal_component
-
-                surface_z_at_A = A[2] - radius_z_component
-                surface_z_at_B = B[2] - radius_z_component
-                min_z = min(surface_z_at_A, surface_z_at_B)
-
-                clearance = min_z - self.ground_limit
-
-            if clearance <= 0.0:
-                # print("Ground collision detected.")
-                return True, 0.0
-
-        # Vector from A to B (the segment)
-
-        # Vector from A to P
-        w = point_P - A
-
-        # Projection of w onto v
-        dot_vv = np.dot(v, v)
-        if dot_vv < 1e-9:  # Segment is effectively a point
-            return False, 0.2
-
-        t = np.dot(w, v) / dot_vv
-
-        # Only consider orthogonal projections that lie strictly on the segment
-
-        if idx == 3:
-            t_clamped = np.maximum(0, np.minimum(1, t))
-
-            closest_on_segment = A + t_clamped * v
-            distance = np.linalg.norm(point_P - closest_on_segment)
-
-        else:
-            if not (0.0 < t < 1.0):
-                return False, 0.4
-
-            closest_point_on_segment = A + t * v
-            distance = np.linalg.norm(point_P - closest_point_on_segment)
-
-        clearance = distance - radius
-
-        return bool(clearance <= 0.0), float(clearance if bool(clearance >= 0.0) else 0)
 
     def fk_for_all(self, q: np.ndarray) -> List[SE3]:
         """

@@ -1,5 +1,6 @@
 import numpy as np
 import time
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
@@ -86,7 +87,9 @@ class PathFollowingPlanner:
 
     def get_all_ik_solutions(self) -> list[np.ndarray]:
         # Process waypoints in parallel using threads
-        with ThreadPoolExecutor() as executor:
+        max_workers = min(len(self.waypoints), max(1, (os.cpu_count() or 1)))
+        print(f"Generating IK solutions using {max_workers} threads...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for waypoint_idx, waypoint in enumerate(self.waypoints):
                 future = executor.submit(_process_waypoint_ik, waypoint_idx, waypoint, len(self.waypoints), self.robot_interface.q_max, self.robot_interface.q_min, self.ik_func, self.obstacle)
@@ -172,7 +175,9 @@ class PathFollowingPlanner:
         print("Starting parallel exhaustive search for the best initial path...")
 
         # Process each end configuration in parallel
-        with ThreadPoolExecutor() as executor:
+        max_workers = min(len(all_ik_solutions[-1]), max(1, (os.cpu_count() or 1)))
+        print(f"Searching using {max_workers} threads...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(search_from_end_point, q_end) for q_end in all_ik_solutions[-1]]
 
             # Wait for all threads to complete

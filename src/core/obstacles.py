@@ -243,6 +243,7 @@ class Obstacle:
             # Check if any collision occurred
             if np.any(collisions):
                 # Find the first collision (to maintain same behavior as original)
+                # print("Arm collision detected.")
                 collision_idx = np.where(collisions)[0][0]
                 return True, float(dists[collision_idx]), 0.033
 
@@ -462,42 +463,6 @@ class Obstacle:
             collisions[valid_indices] = clearances <= 0.0
 
         return collisions, distances.tolist()
-
-    """
-    def mb_check_hoop_collision(self, end_of_arm: np.ndarray, point_P: np.ndarray) -> tuple[bool, float]:
-        hoop_stick = SE3(translation=np.array([-0.1, 0.0, 0.0]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 180.0, 0.0])), "xyz"))
-        hoop_center = end_of_arm * hoop_stick.translation
-    """
-
-    def is_path_viable(self, q_start: np.ndarray, q_end: np.ndarray, num_steps: int = 5) -> bool:
-        """
-        Checks if a straight-line path in joint space between two configurations is collision-free.
-
-        Args:
-            q_start (np.ndarray): The starting joint configuration.
-            q_end (np.ndarray): The ending joint configuration.
-            num_steps (int): The number of intermediate steps to check for collisions.
-
-        Returns:
-            bool: True if the path is viable (collision-free), False otherwise.
-        """
-        # Check the start and end points first as a quick test.
-        if self.check_arm_colision(q_start)[0] or self.check_arm_colision(q_end)[0]:
-            return False
-
-        # Interpolate between the start and end configurations.
-        for i in range(1, num_steps):
-            alpha = i / float(num_steps)
-            q_interp = (1 - alpha) * q_start + alpha * q_end
-
-            # Check for collision at the interpolated point.
-            if self.check_arm_colision(q_interp)[0]:
-                # Uncomment the line below for debugging to see where collisions occur.
-                # print(f"Collision detected during path viability check at step {i}/{num_steps}")
-                return False
-
-        # If no collisions were found along the path, it is viable.
-        return True
 
     def check_hoop_collision(self, q: np.ndarray, segment: tuple[float, float] = (0.0, 10.0)) -> bool:
         """Check if the robot hoop at configuration q collides with the obstacle.
@@ -724,7 +689,7 @@ class Obstacle:
                     robot_lines.append(box_line)
 
             # Pause to create the animation effect
-            plt.pause(0.25)
+            plt.pause(0.75)
 
         ax.set_title("Robot Path Visualization (Finished)")
         plt.ioff()  # Turn off interactive mode

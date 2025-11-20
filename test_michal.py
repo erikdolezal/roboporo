@@ -15,9 +15,9 @@ from src.core.helpers import visualize_homography, project_homography, draw_3d_f
 if __name__ == "__main__":
     robot = RobotInterface(CRS97(tty_dev=None))
     maze_position = SE3(
-        translation=np.array([0.30, 0.01, 0.05]),
+        translation=np.array([0.30, -0.05, 0.05]),
         rotation=SO3.from_euler_angles(
-            np.deg2rad(np.array([0.0, 0, -30])),
+            np.deg2rad(np.array([0.0, 0, -100])),
             ["x", "y", "z"],
         ),
     )
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     )
     
     """
-    obstacle = Obstacle(robot, "E", "src/tools/models", maze_position, num_of_colision_points=30)
+    obstacle = Obstacle(robot, "D", "src/tools/models", maze_position, num_of_colision_points=100)
     obstacle.prep_obstacle()
     maze_waypoints = obstacle.waypoints
 

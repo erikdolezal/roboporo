@@ -12,7 +12,7 @@ from src.interface.robot_interface import RobotInterface
 
 class Obstacle:
     def __init__(
-        self, robot_interface: RobotInterface, type: str, path: str, transform: SE3, start: float = 0.04, end: float = 10.0, num_waypoints: int = 20, num_of_colision_points: int = 22
+        self, robot_interface: RobotInterface, type: str, path: str, transform: SE3, start: float = 0.04, end: float = 10.0, num_waypoints: int = 20, num_of_colision_points: int = 50
     ) -> None:
         self.type = type
         self.path = path
@@ -72,7 +72,7 @@ class Obstacle:
         ax.set_zlabel("z")
         plt.show()
 
-    def get_colision_points(self, num_of_colision_points=30) -> np.ndarray:
+    def get_colision_points(self, num_of_colision_points=50) -> np.ndarray:
         """Get 50 evenly spaced colision points along the centerline."""
         if self.line_final is None:
             raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
@@ -80,6 +80,7 @@ class Obstacle:
             total_points = len(self.line_final)
             step = total_points / num_of_colision_points
             points = [self.line_final[int(i * step)] for i in range(num_of_colision_points)]
+            print(f"Generated {len(points)} collision points.")
             return np.array(points)
         points = []
         return np.array(points)
@@ -212,33 +213,39 @@ class Obstacle:
 
         fk_frames = self.fk_for_all(true_q)
         fk_frames.append(fk_frames[-1] * self.hoop_stick)  # Append end-effector frame again for hoop collision check
-        # num_segments = len(fk_frames)
-        # print("num_segments:", num_segments)
-        dists = []
+
+        if len(self.colision_points) == 0:
+            return False, 0.4
+
+        # Convert collision points to numpy array for vectorized operations
+        collision_points_array = np.array(self.colision_points)  # Shape: (N, 3)
+
+        all_dists = []
+
         for i in [3, 5, 6]:
-            for collision_point in self.colision_points:
-                frame_A = fk_frames[i]
-                frame_B = fk_frames[i + 1]
+            frame_A = fk_frames[i]
+            frame_B = fk_frames[i + 1]
 
-                # print(f"Checking collision for arm segment {i} of length {np.linalg.norm(frame_B.translation - frame_A.translation)}")
+            # Use appropriate radius for each segment
+            if i == 3:  # thick segment
+                radius = self.thick_arm_radius
+            elif i == 5:  # end segment
+                radius = self.end_arm_radius
+            elif i == 6:  # hoop stick
+                radius = self.hoop_stick_radius
+            else:
+                radius = self.thick_arm_radius  # Default fallback
 
-                # time.sleep(0.5)
+            collisions, dists = self.check_segment_to_points_collision_vectorized(i, frame_A, frame_B, collision_points_array, radius)
+            all_dists.extend(dists)
 
-                # Use one-third the radius for the last segment
-                if i == 3:  # thick segment
-                    radius = self.thick_arm_radius
-                elif i == 5:  # end segment
-                    radius = self.end_arm_radius
-                elif i == 6:  # hoop stick
-                    radius = self.hoop_stick_radius
+            # Check if any collision occurred
+            if np.any(collisions):
+                # Find the first collision (to maintain same behavior as original)
+                collision_idx = np.where(collisions)[0][0]
+                return True, float(dists[collision_idx])
 
-                collision, dist = self.check_segment_to_point_collision(i, frame_A, frame_B, collision_point, radius)
-                dists.append(dist)
-                if collision:
-                    # print(f"Collision detected at arm segment {i} with waypoint at {waypoint.translation}")
-                    return True, float(dist)
-
-        return False, float(min(dists))
+        return False, float(min(all_dists))
 
     def check_segment_to_point_collision(self, idx, frame_A: SE3, frame_B: SE3, point_P: np.ndarray, radius: float) -> tuple[bool, float]:
         """
@@ -304,6 +311,96 @@ class Obstacle:
         clearance = distance - radius
 
         return bool(clearance <= 0.0), float(clearance if bool(clearance >= 0.0) else 0)
+
+    def check_segment_to_points_collision_vectorized(self, idx: int, frame_A: SE3, frame_B: SE3, points_P: np.ndarray, radius: float) -> tuple[np.ndarray, list[float]]:
+        """
+        Vectorized version that calculates the minimum distance between a line segment (A-B) and multiple points.
+        Returns arrays of collision results and distances for all points at once.
+
+        Args:
+            idx: Segment index
+            frame_A: Start frame of the segment
+            frame_B: End frame of the segment
+            points_P: Array of points to check, shape (N, 3)
+            radius: Collision radius
+
+        Returns:
+            tuple: (collision_array, distances_list) where collision_array is boolean array of shape (N,)
+        """
+        A = frame_A.translation
+        B = frame_B.translation
+        v = B - A
+
+        N = points_P.shape[0]
+
+        # Ground collision check (vectorized)
+        segment_length = np.linalg.norm(v)
+
+        if A[2] - radius < self.ground_limit or B[2] - radius < self.ground_limit:
+            if segment_length < 1e-9:  # Degenerate case: A ≈ B
+                min_z = min(A[2], B[2])
+                clearance = min_z - radius - self.ground_limit
+                if clearance <= 0.0:
+                    return np.ones(N, dtype=bool), [0.0] * N
+            else:
+                u = v / segment_length
+                if abs(u[2]) > 0.999:  # Nearly vertical cylinder
+                    radius_z_component = 0
+                else:
+                    horizontal_component = np.sqrt(u[0] ** 2 + u[1] ** 2)
+                    radius_z_component = radius * horizontal_component
+
+                surface_z_at_A = A[2] - radius_z_component
+                surface_z_at_B = B[2] - radius_z_component
+                min_z = min(surface_z_at_A, surface_z_at_B)
+                clearance = min_z - self.ground_limit
+
+                if clearance <= 0.0:
+                    return np.ones(N, dtype=bool), [0.0] * N
+
+        # Vector from A to all points (vectorized)
+        w = points_P - A  # Shape: (N, 3)
+
+        # Projection calculations (vectorized)
+        dot_vv = np.dot(v, v)
+        if dot_vv < 1e-9:  # Segment is effectively a point
+            return np.zeros(N, dtype=bool), [0.2] * N
+
+        # t values for all points at once
+        t_values = np.dot(w, v) / dot_vv  # Shape: (N,)
+
+        # Handle different segment rules
+        if idx == 3:
+            t_values = np.maximum(0, np.minimum(1, t_values))
+            valid_mask = np.ones(N, dtype=bool)  # All points are considered for segment 3
+        else:
+            valid_mask = (t_values > 0.0) & (t_values < 1.0)
+
+        # Initialize results
+        collisions = np.zeros(N, dtype=bool)
+        distances = np.full(N, 0.4)  # Default distance for invalid projections
+
+        if np.any(valid_mask):
+            # Calculate closest points for valid projections
+            valid_indices = np.where(valid_mask)[0]
+            t_valid = t_values[valid_mask]  # Shape: (num_valid,)
+
+            # Vectorized closest point calculation
+            # closest_points shape: (num_valid, 3)
+            closest_points = A + t_valid.reshape(-1, 1) * v
+
+            # Calculate distances for valid points
+            valid_points = points_P[valid_mask]  # Shape: (num_valid, 3)
+            point_distances = np.linalg.norm(valid_points - closest_points, axis=1)
+
+            # Calculate clearances
+            clearances = point_distances - radius
+
+            # Update results for valid points
+            distances[valid_indices] = np.where(clearances >= 0.0, clearances, 0.0)
+            collisions[valid_indices] = clearances <= 0.0
+
+        return collisions, distances.tolist()
 
     """
     def mb_check_hoop_collision(self, end_of_arm: np.ndarray, point_P: np.ndarray) -> tuple[bool, float]:

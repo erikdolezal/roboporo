@@ -143,7 +143,7 @@ class PathFollowingPlanner:
                             shared_state["min_total_cost"] = current_cost
                             shared_state["best_q_path"] = list(current_path)  # Make a copy
                             with print_lock:
-                                print(f"  -> New best path with cost: {shared_state['min_total_cost']}")
+                                print(f"  -> New best path with cost: {shared_state['min_total_cost']:.2f}")
                     return
 
                 # Early termination based on shared minimum
@@ -184,7 +184,7 @@ class PathFollowingPlanner:
         if not shared_state["best_q_path"]:
             raise ValueError("Parallel exhaustive search failed to find any valid initial path.")
 
-        print(f"Optimal coarse path found with cost: {shared_state['min_total_cost']}")
+        print(f"Optimal coarse path found with cost: {shared_state['min_total_cost']:.2f}")
         return shared_state["best_q_path"][::-1]
 
     def smooth_path(
@@ -247,7 +247,7 @@ class PathFollowingPlanner:
                     q_path[i] = best_q_for_point
 
             print(
-                f"  -> Smoothing iteration {iter_num + 1}/{num_smoothing_iterations} complete, new cost {sum(self.get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))}. "
+                f"  -> Smoothing iteration {iter_num + 1}/{num_smoothing_iterations} complete, new cost {sum(self.get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path))):.2f}. "
             )
 
         return q_path
@@ -267,17 +267,17 @@ class PathFollowingPlanner:
         q_path = self.smooth_path(q_path, all_ik_solutions, planner_start_time, num_smoothing_iterations)
 
         for i in range(len(q_path)):
-            print(f"transition cost {i}: {self.get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0}")
+            print(f"transition cost {i}: {self.get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0:.2f}")
 
         new_total_cost = sum(self.get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))
 
         if coarse_cost < new_total_cost:
             q_path = coarse_path
-            print(f"Smoothing increased cost; reverting to coarse path with cost {coarse_cost}.")
+            print(f"Smoothing increased cost; reverting to coarse path with cost {coarse_cost:.2f}.")
 
         else:
-            print(f"Final path found with {len(q_path)} points after smoothing for cost {new_total_cost}.")
+            print(f"Final path found with {len(q_path)} points after smoothing for cost {new_total_cost:.2f}.")
 
-        print("took total time:", time.time() - planner_start_time, "seconds")
+        print(f"took total time: {time.time() - planner_start_time:.2f} seconds")
 
         return np.array(q_path)

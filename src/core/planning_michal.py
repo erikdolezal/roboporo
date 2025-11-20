@@ -122,7 +122,7 @@ class PathFollowingPlanner:
             + 70 * (1 - np.dot(waypoint.rotation.rot[:, 2], hoop_pose.rotation.rot[:, 2]))
             + 20
         )
-        return cost if cost < 200 else cost + 200
+        return cost if cost < 60 else cost + 200  ## neeeds to change constant for penalty if weights adjusted!!!
 
     def backward_greedy_search(self, all_ik_solutions):
         # Shared state across all threads
@@ -147,10 +147,10 @@ class PathFollowingPlanner:
                     return
 
                 # Early termination based on shared minimum
-                if current_cost * 1.2 >= current_min:
+                if current_cost * 1.1 >= current_min:
                     return
 
-                if shared_state["start_time"] + 42 < time.time() and shared_state["best_q_path"]:
+                if shared_state["start_time"] + 55 < time.time() and shared_state["best_q_path"]:
                     with print_lock:
                         print("Thread timeout reached.")
                     return  # Timeout

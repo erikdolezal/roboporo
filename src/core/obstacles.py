@@ -1,3 +1,4 @@
+import time
 import os
 import numpy as np
 from src.core.se3 import SE3
@@ -29,9 +30,9 @@ class Obstacle:
         # self.arm_radius = 0.12  # meters
         # if self.type == "E":
         self.arm_radius = 0.085  # meters
-        
+
         # Major and minor radius of the torus obstacle
-        self.major_radius = 0.06 / 2 # meters
+        self.major_radius = 0.06 / 2  # meters
         self.minor_radius = 0.01  # meters
 
     def prep_obstacle(self) -> None:
@@ -121,7 +122,7 @@ class Obstacle:
             positions.append(position)
             tangents.append(tangent)
 
-        tangents[-1] = np.array([0,0,-1])
+        tangents[-1] = np.array([0, 0, -1])
 
         prev_tangent = tangents[0]
         prev_position = positions[0]
@@ -129,11 +130,7 @@ class Obstacle:
         for i in range(len(tangents)):
             dist = np.linalg.norm(positions[i] - prev_position)
             dot_product = np.dot(tangents[i], prev_tangent)
-            if (i == 0 or 
-                i == len(tangents) - 1 or
-                (dist < dist_th and dot_product < np.cos(np.deg2rad(25))) or
-                (dist >= dist_th and dot_product < np.cos(np.deg2rad(5))) or
-                dist > 0.03):
+            if i == 0 or i == len(tangents) - 1 or (dist < dist_th and dot_product < np.cos(np.deg2rad(25))) or (dist >= dist_th and dot_product < np.cos(np.deg2rad(5))) or dist > 0.03:
                 prev_position = positions[i].copy()
                 prev_tangent = tangents[i].copy()
                 tangent = tangents[i]
@@ -181,8 +178,6 @@ class Obstacle:
         start_position = first_se3.translation + 0.05 * first_tangent  # 5 cm = 0.05 m
         start_se3 = SE3(translation=start_position, rotation=first_se3.rotation)
         se3_list.insert(0, start_se3)
-        extra_first_pos = start_position + np.array([0,0,0.05])
-        #se3_list.insert(0, SE3(translation=extra_first_pos, rotation=first_se3.rotation))
 
         self.waypoints = se3_list
         return se3_list
@@ -198,12 +193,12 @@ class Obstacle:
         dists = []
 
         for waypoint in self.waypoints:
-            for i in range(2, num_segments):
+            for i in [3, 5]:
                 frame_A = fk_frames[i]
                 frame_B = fk_frames[i + 1]
 
                 # Use one-third the radius for the last segment
-                if i == num_segments - 1:
+                if i == 5:
                     radius = self.arm_radius / 2
                 else:
                     radius = self.arm_radius
@@ -255,15 +250,14 @@ class Obstacle:
         """
         if self.check_arm_colision(q)[0]:
             return True
-        
+
         if self.check_hoop_in_box(q):
             return True
-        
+
         return False
 
     # ----------------------Inner-Helper-Functions-----------------------------------------------
 
-    
     def check_hoop_in_box(self, q: np.ndarray) -> bool:
         """Check if the robot hoop at configuration q is inside the collision box.
         Args:
@@ -271,36 +265,33 @@ class Obstacle:
         Returns:
             bool: True if the hoop is inside the box, False otherwise.
         """
-        
+
         if self.box is None:
             raise ValueError("Collision box not defined. Call hide_in_box() first.")
-        
+
         hoop_position = self.robot_interface.hoop_fk(q).translation
-        
+
         min_box, max_box = self.box
-        
-        if (min_box[0] <= hoop_position[0] <= max_box[0] and
-            min_box[1] <= hoop_position[1] <= max_box[1] and
-            min_box[2] <= hoop_position[2] <= max_box[2]):
+
+        if min_box[0] <= hoop_position[0] <= max_box[0] and min_box[1] <= hoop_position[1] <= max_box[1] and min_box[2] <= hoop_position[2] <= max_box[2]:
             return True
         else:
             return False
-    
+
     def hide_in_box(self) -> None:
-        """Hide puzzle in the collision box
-        """
+        """Hide puzzle in the collision box"""
         if self.line_final is None:
             raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
-        
+
         min_z = -0.05
         max_z = np.max(self.line_final[:, 2]) + self.box_offset[2]
         min_y = np.min(self.line_final[:, 1]) - self.box_offset[1]
         max_y = np.max(self.line_final[:, 1]) + self.box_offset[1]
         min_x = np.min(self.line_final[:, 0]) - self.box_offset[0]
         max_x = np.max(self.line_final[:, 0]) + self.box_offset[0]
-        
+
         self.box = (np.array([min_x, min_y, min_z]), np.array([max_x, max_y, max_z]))
-    
+
     def set_crop_limits(self) -> None:
         """Set cropping limits based on obstacle type."""
         if self.type == "A":
@@ -328,18 +319,38 @@ class Obstacle:
         """
         A = frame_A.translation
         B = frame_B.translation
+        v = B - A
 
-        clearance2 = 1
+        if A[2] - radius < self.ground_limit or B[2] - radius < self.ground_limit:
+            # ground check
+            segment_length = np.linalg.norm(v)
+            if segment_length < 1e-9:  # Degenerate case: A ≈ B
+                min_z = min(A[2], B[2])
+                clearance = min_z - radius - self.ground_limit
+            else:
+                u = v / segment_length
 
-        
+                if abs(u[2]) > 0.999:  # Nearly vertical cylinder
+                    radius_z_component = 0
+                else:
 
+                    # The z-component of the perpendicular vector pointing most downward is:
+                    # -sqrt(u[0]² + u[1]²) = -sqrt(1 - u[2]²)
+                    horizontal_component = np.sqrt(u[0] ** 2 + u[1] ** 2)  # = sqrt(1 - u[2]²)
+                    radius_z_component = radius * horizontal_component
 
-        if A[2] < self.ground_limit or B[2] < self.ground_limit:
-            # print("Arm below ground limit!")
-            return True, float(0)
+                surface_z_at_A = A[2] - radius_z_component
+                surface_z_at_B = B[2] - radius_z_component
+                min_z = min(surface_z_at_A, surface_z_at_B)
+
+                clearance = min_z - self.ground_limit
+
+            if clearance <= 0.0:
+                # print("Ground collision detected.")
+                return True, 0.0
 
         # Vector from A to B (the segment)
-        v = B - A
+
         # Vector from A to P
         w = point_P - A
 
@@ -350,11 +361,9 @@ class Obstacle:
 
         t = np.dot(w, v) / dot_vv
 
-        #Only consider orthogonal projections that lie strictly on the segment
-        
-        
-        if idx == 4 or idx == 6:
-            print(idx)
+        # Only consider orthogonal projections that lie strictly on the segment
+
+        if idx == 3:
             t_clamped = np.maximum(0, np.minimum(1, t))
 
             closest_on_segment = A + t_clamped * v
@@ -362,14 +371,12 @@ class Obstacle:
 
         else:
             if not (0.0 < t < 1.0):
-                return False, 0.2
+                return False, 0.4
 
             closest_point_on_segment = A + t * v
             distance = np.linalg.norm(point_P - closest_point_on_segment)
-        
+
         clearance = distance - radius
-        
-        
 
         return bool(clearance <= 0.0), float(clearance if bool(clearance >= 0.0) else 0)
 
@@ -495,17 +502,13 @@ class Obstacle:
             hoop_radius = 0.06 / 2  # Major radius of the hoop
             num_hoop_points = 50
             theta = np.linspace(0, 2 * np.pi, num_hoop_points)
-            hoop_points = np.array([
-                hoop_radius * np.cos(theta),
-                hoop_radius * np.sin(theta),
-                np.zeros(num_hoop_points)
-            ]).T  # Shape (num_hoop_points, 3)
+            hoop_points = np.array([hoop_radius * np.cos(theta), hoop_radius * np.sin(theta), np.zeros(num_hoop_points)]).T  # Shape (num_hoop_points, 3)
             hoop_points_transformed = np.array([end_effector_frame.act(point) for point in hoop_points])
             (hoop_line,) = ax.plot(hoop_points_transformed[:, 0], hoop_points_transformed[:, 1], hoop_points_transformed[:, 2], "g-", linewidth=2)
             robot_lines.append(hoop_line)
             # Update the title to show progress
             ax.set_title(f"Robot Path Visualization (Step {i+1}/{len(q_path)})")
-            
+
             # Draw collision box
             if self.box is not None:
                 min_box, max_box = self.box
@@ -527,13 +530,8 @@ class Obstacle:
                     ([min_box[0], max_box[1], min_box[2]], [min_box[0], max_box[1], max_box[2]]),
                 ]
                 for line_start, line_end in box_lines:
-                    (box_line,) = ax.plot(
-                        [line_start[0], line_end[0]],
-                        [line_start[1], line_end[1]],
-                        [line_start[2], line_end[2]],
-                        "k--", linewidth=1
-                    )
-                    robot_lines.append(box_line)   
+                    (box_line,) = ax.plot([line_start[0], line_end[0]], [line_start[1], line_end[1]], [line_start[2], line_end[2]], "k--", linewidth=1)
+                    robot_lines.append(box_line)
 
             # Pause to create the animation effect
             plt.pause(0.25)

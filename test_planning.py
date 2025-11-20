@@ -14,7 +14,7 @@ from src.core.helpers import visualize_homography, project_homography, draw_3d_f
 
 if __name__ == "__main__":
     robot = RobotInterface(CRS97(tty_dev=None))
-    maze_position = SE3(translation=np.array([0.32, -0.12, 0.1]), rotation=SO3.from_euler_angles(np.deg2rad(np.array([0.0, 0, -90])), ["x", "y", "z"]))
+    maze_position = SE3(translation=np.array([0.32, -0.12, 0.1]), rotation=SO3.from_euler_angles(np.deg2rad(np.array([0.0, 0, -45])), ["x", "y", "z"]))
     obstacle = Obstacle(robot, "D", "src/tools/models", maze_position, num_waypoints=15)
     obstacle.prep_obstacle()
     maze_waypoints = obstacle.waypoints
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     
     print("Best q list from PathFollowingPlanner:")
     print(best_q_list)
-    rrt_planner = RRTPlanner(robot, obstacle, step_size=0.1, goal_tol=0.25, max_iter=2000)
+    rrt_planner = RRTPlanner(robot, obstacle, step_size=0.25, goal_tol=0.25, max_iter=2000)
     end_q = best_q_list[0]
     start_q = np.array([0.0, -np.pi/4, np.pi/2, -np.pi/2, -np.pi/4, 0.0])
     print("Starting RRT planning from")

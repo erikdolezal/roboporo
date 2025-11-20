@@ -9,7 +9,7 @@ from src.core.obstacles import Obstacle
 
 
 class RRTPlanner:
-    def __init__(self, robot_interface: RobotInterface, obstacle: Obstacle, step_size: float = 0.05, goal_tol: float = 0.5, max_iter: int = 2000) -> None:
+    def __init__(self, robot_interface: RobotInterface, obstacle: Obstacle, step_size: float = 0.25, goal_tol: float = 0.25, max_iter: int = 1000) -> None:
         self.robot_interface = robot_interface
         self.obstacle = obstacle
         self.step_size = step_size
@@ -19,7 +19,7 @@ class RRTPlanner:
         self.tree = {}  # key: tuple(q), value: Node
         
         self.seed_q = None
-        self.seed_sigma = 0.1
+        self.seed_sigma = 0.3
         self.seed_probability = 0.6
         
     def plan(self, start_q: np.ndarray, goal_q: np.ndarray) -> list[np.ndarray]:

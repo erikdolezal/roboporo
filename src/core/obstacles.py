@@ -37,9 +37,11 @@ class Obstacle:
         # if self.type == "E":
         # self.arm_radius = 0.085  # DEPRICATED FOR COLISSION CHECKING
 
-        self.thick_arm_radius = 0.085  # meters
+        self.thick_arm_radius = 0.1  # meters
+        self.normal_arm_radius = 0.085  # meters
         self.end_arm_radius = 0.05  # meters
         self.hoop_stick_radius = 0.03  # meters
+        self.hoop_thickness = 0.004  # meters
 
         # Major and minor radius of the torus obstacle
         self.major_radius = 0.06 / 2  # meters
@@ -223,13 +225,16 @@ class Obstacle:
 
         all_dists = []
 
-        for i in [3, 5, 6]:
+        for i in [1, 3, 5, 6]:
             frame_A = fk_frames[i]
             frame_B = fk_frames[i + 1]
 
             # Use appropriate radius for each segment
-            if i == 3:  # thick segment
+            if i == 1:  # first segment
+                # print(f"len of frame AB {frame_A}, {frame_B}")
                 radius = self.thick_arm_radius
+            elif i == 3:  # thick segment
+                radius = self.normal_arm_radius
             elif i == 5:  # end segment
                 radius = self.end_arm_radius
             elif i == 6:  # hoop stick
@@ -247,7 +252,7 @@ class Obstacle:
                 collision_idx = np.where(collisions)[0][0]
                 return True, float(dists[collision_idx]), 0.033
 
-        circle_collisions, circle_dists = self.check_circle_to_point_collision_vectorized(fk_frames[-1], collision_points_array)
+        circle_collisions, circle_dists = self.check_circle_to_point_collision_vectorized(fk_frames[-1], collision_points_array, circle_radius=0.03, collision_threshold=self.hoop_thickness)
         if np.any(circle_collisions):
 
             collision_idx = np.where(circle_collisions)[0][0]

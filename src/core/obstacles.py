@@ -35,7 +35,7 @@ class Obstacle:
         # if self.type == "E":
         # self.arm_radius = 0.085  # DEPRICATED FOR COLISSION CHECKING
 
-        self.thick_arm_radius = 0.1  # meters
+        self.thick_arm_radius = 0.13  # meters
         self.normal_arm_radius = 0.085  # meters
         self.end_arm_radius = 0.05  # meters
         self.hoop_stick_radius = 0.03  # meters
@@ -126,8 +126,10 @@ class Obstacle:
         se3_list = []
         positions = []
         tangents = []
+        point_radius = 40
+        lookahead = 20
         for i in range(len(self.line_final)):
-            position = np.mean(self.line_final[max(0, i - 4) : min(total_points, i + 5)], axis=0)
+            position = np.mean(self.line_final[max(0, i - 5) : min(total_points, i + 1 + 5)], axis=0)
 
             # Calculate tangent direction
             if i == 0:
@@ -140,7 +142,7 @@ class Obstacle:
                 # Middle points: use central difference
                 tangent = self.line_final[i + 1] - self.line_final[i - 1]
 
-            _, _, Vt = np.linalg.svd(self.line_final[max(0, i - 10) : min(len(self.line_final), i + 11)] - position)
+            _, _, Vt = np.linalg.svd(self.line_final[max(0, i - point_radius - lookahead) : min(len(self.line_final), i + 1 + point_radius + lookahead)] - position)
 
             if np.dot(tangent, Vt[0]) < 0:
                 tangent = -Vt[0]
@@ -160,7 +162,7 @@ class Obstacle:
         for i in range(len(tangents)):
             dist = np.linalg.norm(positions[i] - prev_position)
             dot_product = np.dot(tangents[i], prev_tangent)
-            if i == 0 or i == len(tangents) - 1 or (dist < dist_th and dot_product < np.cos(np.deg2rad(25))) or (dist >= dist_th and dot_product < np.cos(np.deg2rad(5))) or dist > 0.03:
+            if i == 0 or i == len(tangents) - 1 or (dist < dist_th and dot_product < np.cos(np.deg2rad(15))) or (dist >= dist_th and dot_product < np.cos(np.deg2rad(5))) or dist > 0.5:
                 prev_position = positions[i].copy()
                 prev_tangent = tangents[i].copy()
                 tangent = tangents[i]
@@ -321,7 +323,7 @@ class Obstacle:
 
         # Only consider orthogonal projections that lie strictly on the segment
 
-        if idx == 3:
+        if idx == 3 or idx == 5:
             t = np.maximum(0, np.minimum(1, t))
 
         else:

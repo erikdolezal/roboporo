@@ -54,6 +54,7 @@ def main(args):
             q1 = best_q_list[0]
             rrt = RRTPlanner(robot, obstacle)
             planned_path = rrt.plan(q0, q1)
+            print(f"After RRT and shortcuts: {len(planned_path)}")
 
             path = planned_path + best_q_list.tolist()
 

@@ -214,6 +214,7 @@ class PathFollowingPlanner:
                         break  # Only take the first (cheapest) viable candidate
 
                 # Also try a candidate from one-quarter of the way through the sorted list for more exploration
+                """
                 if found_viable and len(sorted_candidates) > 7:
                     one_quarter_idx = len(sorted_candidates) // 4
                     for i in range(one_quarter_idx, len(sorted_candidates)):
@@ -222,6 +223,7 @@ class PathFollowingPlanner:
                             transition_cost = self.get_transition_cost(self.waypoints[waypoint_level], candidate_q, next_q)
                             find_best_path_recursive(waypoint_level - 1, current_path + [candidate_q], current_cost + transition_cost)
                             break  # Only take the first viable candidate from this section
+                """
 
                 if not found_viable:
                     # No viable path found from this waypoint, terminate this branch

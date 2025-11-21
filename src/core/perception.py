@@ -10,7 +10,7 @@ import numpy as np
 import cv2  # noqa
 import matplotlib.pyplot as plt
 
-VIS = True
+VIS = False
 
 def find_hoop_homography(images: ArrayLike, hoop_positions: List[dict]) -> np.ndarray:
     """
@@ -64,7 +64,8 @@ def find_hoop_homography(images: ArrayLike, hoop_positions: List[dict]) -> np.nd
             cv2.waitKey(0)
             cv2.destroyAllWindows()
     dest_points = dest_points[found_hoop_idx]
-    print(np.array([src_points]), np.array([dest_points]))
-    homography, mask = cv2.findHomography(np.array(src_points), np.array(dest_points))
-    return homography, src_points, dest_points, mask
+    src_points = np.array(src_points)
+    dest_points = np.array(dest_points)
+    homography, mask = cv2.findHomography(src_points, dest_points)
+    return homography, src_points, dest_points
 

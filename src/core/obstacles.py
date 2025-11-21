@@ -1,6 +1,4 @@
-import time
 import os
-from cv2 import circle
 import numpy as np
 from src.core.se3 import SE3
 from src.core.so3 import SO3
@@ -13,7 +11,7 @@ from src.interface.robot_interface import RobotInterface
 
 class Obstacle:
     def __init__(
-        self, robot_interface: RobotInterface, type: str, path: str, transform: SE3, start: float = 0.04, end: float = 10.0, num_waypoints: int = 20, num_of_colision_points: int = 50
+        self, robot_interface: RobotInterface, type: str, path: str, transform: SE3, start: float = 0.04, end: float = 10.0, num_waypoints: int = 20, num_of_colision_points: int = 200
     ) -> None:
         self.type = type
         self.path = path

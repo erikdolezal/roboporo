@@ -1,4 +1,5 @@
 import argparse
+import time
 import numpy as np
 from ctu_crs import CRS97, CRS93
 from src.interface.robot_interface import RobotInterface
@@ -31,25 +32,20 @@ def main(args):
             obstacle = Obstacle(robot, args.maze, "src/tools/models", maze_position)
             obstacle.prep_obstacle()
             maze_waypoints = obstacle.waypoints
-            #planner = PathFollowingPlanner(robot, maze_waypoints, robot.hoop_ik)
+            # planner = PathFollowingPlanner(robot, maze_waypoints, robot.hoop_ik)
             init_planner = PlannerGreedyBckwrd(robot, obstacle, maze_waypoints, robot.hoop_ik)
             best_q_list = np.array(init_planner.get_list_of_best_q())
-
-
-
-
-
 
             fig = plt.figure(figsize=(8, 8), layout="tight")
             ax = fig.add_subplot(111, projection="3d")
             ax.view_init(elev=40.0, azim=-150)
             # vizualize
-            #for i in range(1, len(best_q_list)):
+            # for i in range(1, len(best_q_list)):
             #    q = best_q_list[i]
             #    actual_pose = robot.hoop_fk(q)
             #    prev_q = best_q_list[i - 1] if i > 0 else q
             #    prev_pose = robot.hoop_fk(prev_q)
-            interpolated_qs = best_q_list#np.linspace(prev_q, q, num=int(2 + 0*np.linalg.norm(actual_pose.translation - prev_pose.translation) / 0.01), endpoint=True)
+            interpolated_qs = best_q_list  # np.linspace(prev_q, q, num=int(2 + 0*np.linalg.norm(actual_pose.translation - prev_pose.translation) / 0.01), endpoint=True)
             for iq in interpolated_qs:
                 T = robot.hoop_fk(iq)
                 draw_3d_frame(ax, T.rotation.rot, T.translation, scale=0.02)
@@ -61,11 +57,12 @@ def main(args):
             ax.set_zlabel("z")
             plt.show()
 
-
-            #rrt = RRTPlanner(robot, obstacle)
-            #robot.follow_q_list(rrt.plan(robot.get_q(), best_q_list[0]))
+            # rrt = RRTPlanner(robot, obstacle)
+            # robot.follow_q_list(rrt.plan(robot.get_q(), best_q_list[0]))
 
             robot.follow_q_list(best_q_list)
+
+            time.sleep(1.5)
 
             robot.follow_q_list(best_q_list[::-1])
             robot.soft_home()

@@ -1,4 +1,3 @@
-from sympy import rad
 from src.core.planning import PathFollowingPlanner as PlannerIterative
 from src.core.planning_michal import PathFollowingPlanner as PlannerGreedyBckwrd
 from src.core.obstacles import Obstacle

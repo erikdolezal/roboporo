@@ -39,14 +39,7 @@ def main(args):
             fig = plt.figure(figsize=(8, 8), layout="tight")
             ax = fig.add_subplot(111, projection="3d")
             ax.view_init(elev=40.0, azim=-150)
-            # vizualize
-            # for i in range(1, len(best_q_list)):
-            #    q = best_q_list[i]
-            #    actual_pose = robot.hoop_fk(q)
-            #    prev_q = best_q_list[i - 1] if i > 0 else q
-            #    prev_pose = robot.hoop_fk(prev_q)
-            interpolated_qs = best_q_list  # np.linspace(prev_q, q, num=int(2 + 0*np.linalg.norm(actual_pose.translation - prev_pose.translation) / 0.01), endpoint=True)
-            for iq in interpolated_qs:
+            for iq in best_q_list:
                 T = robot.hoop_fk(iq)
                 draw_3d_frame(ax, T.rotation.rot, T.translation, scale=0.02)
                 ax.plot(*T.translation, marker="o", color="blue", markersize=2)
@@ -57,14 +50,16 @@ def main(args):
             ax.set_zlabel("z")
             plt.show()
 
-            # rrt = RRTPlanner(robot, obstacle)
-            # robot.follow_q_list(rrt.plan(robot.get_q(), best_q_list[0]))
+            q0 = robot.get_q()
+            q1 = best_q_list[0]
+            rrt = RRTPlanner(robot, obstacle)
+            planned_path = rrt.plan(q0, q1)
 
-            robot.follow_q_list(best_q_list)
+            path = planned_path + best_q_list.tolist()
 
+            robot.follow_q_list(path)
             time.sleep(1.5)
-
-            robot.follow_q_list(best_q_list[::-1])
+            robot.follow_q_list(path[::-1])
             robot.soft_home()
     else:
         maze_position = SE3(translation=np.array([0.35, -0.09, 0.05]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 0.0, 120.0])), "xyz"))

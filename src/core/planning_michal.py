@@ -13,9 +13,23 @@ from copy import deepcopy
 
 # Global lock for thread-safe printing
 print_lock = Lock()
+Z_LIMIT = 0.02
 
 
-def _process_waypoint_ik(waypoint_idx, waypoint, total_waypoints, q_max, q_min, ik_func, obstacle):
+class Q:
+    def __init__(self, q_array):
+        self.q_array: np.ndarray = q_array
+        self.distance: float = 0.0
+        self.hoop_distance: float = 0.0
+        self.dot_product: float = 0.0
+        self.tangent_dot_product: float = 0.0
+        self.T_pose: SE3 | None = None
+        self.hoop_pose: SE3 | None = None
+        self.height_penalty: float = 0.0
+        self.q_penalty: float = 0.0
+
+
+def _process_waypoint_ik(waypoint_idx, waypoint: SE3, total_waypoints, q_max, q_min, ik_func, obstacle: Obstacle, robot_interface: RobotInterface) -> list[Q]:
     """Worker function to process IK solutions for a single waypoint."""
     # Generate multiple orientations around the tangent axis
     ik_sols_all = []
@@ -24,6 +38,10 @@ def _process_waypoint_ik(waypoint_idx, waypoint, total_waypoints, q_max, q_min, 
         # For the last waypoint, only rotate around tangent
         tilt_angles_deg = [0]
         roll_angles_deg = [0]
+    elif waypoint_idx == total_waypoints - 2:
+        # For the last waypoint, only rotate around tangent
+        tilt_angles_deg = [-35, -15, -5, 0, 5, 15, 35]
+        roll_angles_deg = [-35, -15, -5, 0, 5, 15, 35]
     else:
         # For all other waypoints, include tilt and roll
         tilt_angles_deg = [-35, -15, -5, 0, 5, 15, 35]  # Degrees of tilt around Y
@@ -68,9 +86,34 @@ def _process_waypoint_ik(waypoint_idx, waypoint, total_waypoints, q_max, q_min, 
     if len(ik_sols_filtered) == 0:
         raise ValueError(f"No valid IK solution within joint limits for waypoint {waypoint_idx} at {waypoint}.")
 
+    # Convert to Q objects with pre-calculated costs
+    q_objects = []
+    for q_array in ik_sols_filtered:
+        q_obj = Q(q_array)
+
+        # Pre-calculate all costs
+        q_obj.T_pose = SE3().from_homogeneous(robot_interface.fk(q_array))
+        q_obj.hoop_pose = robot_interface.hoop_fk(q_array)
+
+        # Type guard assertions since we just set these values
+        assert q_obj.hoop_pose is not None
+        assert q_obj.T_pose is not None
+
+        hoop_x_axis = q_obj.hoop_pose.rotation.rot[:, 0]
+        me_vector = np.array([0, 0, -1])
+        q_obj.dot_product = float(np.dot(hoop_x_axis, me_vector))
+        collision, dist, circle_dist = obstacle.check_arm_colision(q_array)
+        q_obj.distance = dist
+        q_obj.hoop_distance = circle_dist
+        q_obj.tangent_dot_product = float(np.dot(waypoint.rotation.rot[:, 2], q_obj.hoop_pose.rotation.rot[:, 2]))
+        q_obj.height_penalty = float(np.sum(np.maximum(0, Z_LIMIT * 2 - q_obj.T_pose.translation[2])))
+        q_obj.q_penalty = float(np.linalg.norm(q_obj.q_array[-2:] - (robot_interface.q_max[-2:] + robot_interface.q_min[-2:]) / 2))
+
+        q_objects.append(q_obj)
+
     with print_lock:
         print(f"Processed waypoint {waypoint_idx}/{total_waypoints-1}")
-    return ik_sols_filtered
+    return q_objects
 
 
 class PathFollowingPlanner:
@@ -83,16 +126,18 @@ class PathFollowingPlanner:
         self.q_max[0] = np.pi / 3
         self.q_min[0] = -np.pi / 3
         self.ik_func = ik_func
-        self.Z_LIMIT = 0.02
+        self.Z_LIMIT = Z_LIMIT
 
-    def get_all_ik_solutions(self) -> list[np.ndarray]:
+    def get_all_ik_solutions(self) -> list[list[Q]]:
         # Process waypoints in parallel using threads
         max_workers = min(len(self.waypoints), max(1, (os.cpu_count() or 1)))
         print(f"Generating IK solutions using {max_workers} threads...")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for waypoint_idx, waypoint in enumerate(self.waypoints):
-                future = executor.submit(_process_waypoint_ik, waypoint_idx, waypoint, len(self.waypoints), self.robot_interface.q_max, self.robot_interface.q_min, self.ik_func, self.obstacle)
+                future = executor.submit(
+                    _process_waypoint_ik, waypoint_idx, waypoint, len(self.waypoints), self.robot_interface.q_max, self.robot_interface.q_min, self.ik_func, self.obstacle, self.robot_interface
+                )
                 futures.append(future)
 
             # Collect results in order
@@ -103,30 +148,27 @@ class PathFollowingPlanner:
             print(f"All search waypoint {waypoint_idx} has {len(sols)} IK solutions.")
         return all_ik_solutions
 
-    def get_transition_cost(self, waypoint, candidate_q, prev_q):
+    def get_transition_cost(self, waypoint, candidate_q: Q, prev_q: Q) -> float:
         """Calculates the transition cost from a previous configuration to a candidate."""
-        T_pose = SE3().from_homogeneous(self.robot_interface.fk(candidate_q))
+        # Use pre-calculated values from Q object
+        prev_q_array = prev_q.q_array
 
-        hoop_pose = self.robot_interface.hoop_fk(candidate_q)
-        hoop_x_axis = hoop_pose.rotation.rot[:, 0]
-        me_vector = np.array([0, 0, -1])
-        dot_prod = np.dot(hoop_x_axis, me_vector)
-        collision, dist, circle_dist = self.obstacle.check_arm_colision(candidate_q)
-        # collision_in_path_cost = 1000 if self.obstacle.is_path_viable(prev_q, candidate_q) else 0
+        # Type guard assertion since Q objects should have these values set
+        assert candidate_q.T_pose is not None
 
         # important to tune dot prod weight
         cost = (
-            2 * np.linalg.norm(candidate_q[:] - prev_q[:]) ** 2
-            + 30 * np.linalg.norm(candidate_q[-3:] - prev_q[-3:]) ** 2
-            + 1 * np.sum(np.maximum(0, self.Z_LIMIT * 2 - T_pose.translation[2]))
-            + 0.1 * np.linalg.norm(candidate_q[-2:] - (self.robot_interface.q_max[-2:] + self.robot_interface.q_min[-2:]) / 2)
-            + 15 * (-dot_prod)
-            + 20 * (-dist)
-            + 70 * (1 - np.dot(waypoint.rotation.rot[:, 2], hoop_pose.rotation.rot[:, 2]))
-            + 10 * (1 if circle_dist < 0.01 else 0)
+            2 * np.linalg.norm(candidate_q.q_array[:] - prev_q_array[:]) ** 2
+            + 30 * np.linalg.norm(candidate_q.q_array[-3:] - prev_q_array[-3:]) ** 2
+            + 1 * candidate_q.height_penalty
+            + 0.1 * candidate_q.q_penalty
+            + 15 * (-candidate_q.dot_product)
+            + 20 * (-candidate_q.distance)
+            + 70 * (1 - candidate_q.tangent_dot_product)
+            + 10 * (1 if candidate_q.hoop_distance < 0.01 else 0)
             + 20
         )
-        return cost if cost < 60 else cost + 200  ## neeeds to change constant for penalty if weights adjusted!!!
+        return float(cost) if cost < 60 else float(cost) + 200  ## neeeds to change constant for penalty if weights adjusted!!!
 
     def backward_greedy_search(self, all_ik_solutions):
         # Shared state across all threads
@@ -135,7 +177,7 @@ class PathFollowingPlanner:
         def search_from_end_point(q_end):
             """Search for best path starting from a specific end configuration."""
 
-            def find_best_path_recursive(waypoint_level, current_path, current_cost):
+            def find_best_path_recursive(waypoint_level: int, current_path: list[Q], current_cost: float):
                 # Check shared minimum cost for early termination
                 with shared_state["lock"]:
                     current_min = shared_state["min_total_cost"]
@@ -151,7 +193,7 @@ class PathFollowingPlanner:
                     return
 
                 # Early termination based on shared minimum
-                if current_cost * 1.1 >= current_min:
+                if current_cost * 1.01 >= current_min:
                     return
 
                 if shared_state["start_time"] + 55 < time.time() and shared_state["best_q_path"]:
@@ -160,16 +202,35 @@ class PathFollowingPlanner:
                     return  # Timeout
 
                 next_q = current_path[-1]
-                K = 1
                 sorted_candidates = sorted(all_ik_solutions[waypoint_level], key=lambda q: self.get_transition_cost(self.waypoints[waypoint_level], q, next_q))
-                cheapest_candidates = sorted_candidates[: min(K, len(sorted_candidates))]
 
-                for candidate_q in cheapest_candidates:
-                    transition_cost = self.get_transition_cost(self.waypoints[waypoint_level], candidate_q, next_q)
-                    find_best_path_recursive(waypoint_level - 1, current_path + [candidate_q], current_cost + transition_cost)
+                # Try candidates in order of cost until we find a viable path
+                found_viable = False
+                for candidate_q in sorted_candidates:
+                    if self.obstacle.check_path_viable(q_start=next_q.q_array, q_end=candidate_q.q_array):
+                        transition_cost = self.get_transition_cost(self.waypoints[waypoint_level], candidate_q, next_q)
+                        find_best_path_recursive(waypoint_level - 1, current_path + [candidate_q], current_cost + transition_cost)
+                        found_viable = True
+                        break  # Only take the first (cheapest) viable candidate
+
+                # Also try a candidate from one-quarter of the way through the sorted list for more exploration
+                if found_viable and len(sorted_candidates) > 7:
+                    one_quarter_idx = len(sorted_candidates) // 4
+                    for i in range(one_quarter_idx, len(sorted_candidates)):
+                        candidate_q = sorted_candidates[i]
+                        if self.obstacle.check_path_viable(q_start=next_q.q_array, q_end=candidate_q.q_array):
+                            transition_cost = self.get_transition_cost(self.waypoints[waypoint_level], candidate_q, next_q)
+                            find_best_path_recursive(waypoint_level - 1, current_path + [candidate_q], current_cost + transition_cost)
+                            break  # Only take the first viable candidate from this section
+
+                if not found_viable:
+                    # No viable path found from this waypoint, terminate this branch
+                    with print_lock:
+                        print(f"Path from waypoint {waypoint_level} candidate rejected due to collision. Terminating branch.")
+                    return
 
             # Start recursive search from this end point
-            print(f"Starting search from end configuration[-1]: {q_end[-1]:.2f}")
+            print(f"Starting search from end configuration[-1]: {q_end.q_array[-1]:.2f}")
             find_best_path_recursive(len(all_ik_solutions) - 2, [q_end], 0.0)
 
         print("Starting parallel exhaustive search for the best initial path...")
@@ -195,11 +256,11 @@ class PathFollowingPlanner:
 
     def smooth_path(
         self,
-        q_path: list[np.ndarray],
+        q_path: list[Q],
         all_ik_solutions,
         planner_start_time,
         num_smoothing_iterations: int = 1,
-    ) -> list[np.ndarray]:
+    ) -> list[Q]:
         print("Starting path smoothing...")
         for iter_num in range(num_smoothing_iterations):
             # Iterate backwards through the path, from the last point to the first
@@ -286,4 +347,4 @@ class PathFollowingPlanner:
 
         print(f"took total time: {time.time() - planner_start_time:.2f} seconds")
 
-        return np.array(q_path)
+        return np.array([q.q_array for q in q_path])

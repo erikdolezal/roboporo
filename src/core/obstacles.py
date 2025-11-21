@@ -208,11 +208,15 @@ class Obstacle:
         self.waypoints = se3_list
         return se3_list
 
-    def check_arm_colision(self, true_q: np.ndarray) -> tuple[bool, float, float]:
+    def check_arm_colision(self, true_q: np.ndarray, for_path: bool = False, hoop_collision_radius=None) -> tuple[bool, float, float]:
         """
         Check if the robot arm at configuration true_q collides with any of the obstacle's waypoints.
         The last segment of the arm has a smaller collision radius.
         """
+
+        hoop_thickness = self.hoop_thickness if not for_path else hoop_collision_radius
+
+        assert hoop_thickness is not None, "hoop_collision_radius must be provided when for_path is True."
 
         fk_frames = self.fk_for_all(true_q)
         fk_frames.append(fk_frames[-1] * self.hoop_stick)  # Append end-effector frame again for hoop collision check
@@ -252,7 +256,7 @@ class Obstacle:
                 collision_idx = np.where(collisions)[0][0]
                 return True, float(dists[collision_idx]), 0.033
 
-        circle_collisions, circle_dists = self.check_circle_to_point_collision_vectorized(fk_frames[-1], collision_points_array, circle_radius=0.03, collision_threshold=self.hoop_thickness)
+        circle_collisions, circle_dists = self.check_circle_to_point_collision_vectorized(fk_frames[-1], collision_points_array, circle_radius=0.03, collision_threshold=hoop_thickness)
         if np.any(circle_collisions):
 
             collision_idx = np.where(circle_collisions)[0][0]
@@ -468,6 +472,17 @@ class Obstacle:
             collisions[valid_indices] = clearances <= 0.0
 
         return collisions, distances.tolist()
+
+    def check_path_viable(self, q_start, q_end) -> bool:
+        """Check if path between q_start and q_end is viable (collision-free)."""
+        num_steps = 11
+        for i in range(num_steps + 1):
+            alpha = i / num_steps
+            q_interp = (1 - alpha) * q_start + alpha * q_end
+            collision, _, _ = self.check_arm_colision(q_interp, for_path=True, hoop_collision_radius=0.001)
+            if collision:
+                return False
+        return True
 
     def check_hoop_collision(self, q: np.ndarray, segment: tuple[float, float] = (0.0, 10.0)) -> bool:
         """Check if the robot hoop at configuration q collides with the obstacle.

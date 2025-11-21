@@ -1,3 +1,4 @@
+from copy import deepcopy
 import random
 import numpy as np
 import time
@@ -43,17 +44,43 @@ class RRTPlanner:
                     goal_node = self.Node(goal_q, parent=new_node)
                     self.tree[tuple(goal_q)] = goal_node
                     print(f"Goal reached in iteration {iteration}!, distance to goal: {np.linalg.norm(new_q - goal_q)}")
-                    return self.reconstruct_path(goal_node)
+                    return self.path_shortcuts(self.reconstruct_path(goal_node))
             else:
                 print(f"Iteration {iteration}: Collision at {new_q}")
             
         print("Failed to find a path within the maximum iterations.")
         return []  # No path found
     
-    def path_smooth(self):
-        """Placeholder for path smoothing method."""
-        # TODO: Implement path smoothing if needed
-        pass  
+    def path_shortcuts(self, path: list[np.ndarray]) -> list[np.ndarray]:
+        """Tries to shorten the path by generating random shortcuts."""
+        
+        if path is None or len(path) < 3:
+            return path
+        
+        path_out = deepcopy(path)
+        
+        for _ in range(self.max_iter):
+            if len(path_out) < 3:
+                break
+            
+            idx1 = random.randint(0, len(path_out) - 2)
+            idx2 = random.randint(idx1 + 1, len(path_out) - 1)
+            
+            q1 = path_out[idx1]
+            q2 = path_out[idx2]
+            
+            collision_free = True
+            steps = int(np.ceil(np.linalg.norm(q2 - q1) / self.step_size))
+            for step in range(1, steps):
+                alpha = step / steps
+                q_interp = (1 - alpha) * q1 + alpha * q2
+                if self.check_collision(q_interp):
+                    collision_free = False
+                    break
+            if collision_free:
+                path_out = path_out[:idx1 + 1] + path_out[idx2:]
+        
+        return path_out
     
     def check_best_seed(self, goal: np.ndarray, new: np.ndarray) -> None:
         """Updates the seed configuration to the best node found so far towards the goal."""

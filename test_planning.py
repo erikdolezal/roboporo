@@ -52,7 +52,7 @@ if __name__ == "__main__":
     print(best_q_list)
     rrt_planner = RRTPlanner(robot, obstacle, step_size=0.25, goal_tol=0.25, max_iter=2000)
     end_q = best_q_list[0]
-    start_q = np.array([0.0, -np.pi/4, np.pi/2, -np.pi/2, -np.pi/4, 0.0])
+    start_q = np.array([-np.pi, -np.pi/4, np.pi/2, -np.pi/2, -np.pi/4, 0.0])
     print("Starting RRT planning from")
     path = rrt_planner.plan(start_q, end_q)
     obstacle.visualize_path(path)

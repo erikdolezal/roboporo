@@ -12,7 +12,7 @@ class RobotInterface:
     def __init__(self, robot):
         self.robot = robot
         self.camera2robot_H = np.eye(3) if not os.path.exists("camera2robot_H.npy") else np.load("camera2robot_H.npy")
-        self.robot2hoop = SE3(translation=np.array([-0.135, 0.0, 0.0]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 180.0, 0.0])), "xyz"))
+        self.robot2hoop = SE3(translation=np.array([-0.13, 0.005, 0.0]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 180.0, 0.0])), "xyz"))
 
     def __getattr__(self, name):
         return getattr(self.robot, name)
@@ -45,6 +45,8 @@ class RobotInterface:
         q0 = self.robot.get_q()
         print("target_pose:\n", target_pose)
         ik_sols = self.hoop_ik(target_pose)
+        if len(ik_sols) == 0:
+            return False
         ik_sols_mask = np.all(ik_sols < self.robot.q_max, axis=1) & np.all(ik_sols > self.robot.q_min, axis=1)
         ik_sols = ik_sols[ik_sols_mask]
         if len(ik_sols) > 0:
@@ -87,21 +89,28 @@ class RobotInterface:
         images = []
         real_positions = []
         for pos in target_positions:
-            if self.move_absolute(0.0, 0.0, 0.0, pos[0], pos[1], pos[2]):
+            moved = self.move_absolute(0.0, 0.0, 0.0, pos[0], pos[1], pos[2])
+            if not moved:
+                moved = self.move_absolute(0.0, 0.0, -90.0, pos[0], pos[1], pos[2]) 
+            if moved:
                 img = self.robot.grab_image()
                 images.append(img)
                 actual_pose = self.get_actual_pose()
                 real_positions.append({"translation_vector": actual_pose.translation.tolist()})
 
-        self.camera2robot_H, src_points, dest_points = find_hoop_homography(images, real_positions)
+        self.camera2robot_H, src_points, dest_points, mask = find_hoop_homography(images, real_positions)
+        mask = mask.astype(bool).flatten()
         print("Computed homography:\n", self.camera2robot_H)
+        print(np.linalg.norm(project_homography(self.camera2robot_H, src_points) - dest_points, axis=1))
         def draw_extra(ax):
             projected_points = project_homography(self.camera2robot_H, np.array(src_points))
             projected_positions = project_homography(np.linalg.inv(self.camera2robot_H), dest_points)
             ax[0].plot(*src_points.T, 'o', c="red")
-            ax[0].plot(*projected_positions.T, 'o', c="green")
+            ax[0].plot(*projected_positions[~mask].T, 'o', c="black")
+            ax[0].plot(*projected_positions[mask].T, 'o', c="green")
             ax[1].plot(*dest_points.T, 'o', c="red")
-            ax[1].plot(*projected_points.T, 'o', c="green")
+            ax[1].plot(*projected_points[~mask].T, 'o', c="black")
+            ax[1].plot(*projected_points[mask].T, 'o', c="green")
 
         visualize_homography(images[0], self.camera2robot_H, draw_extra=draw_extra)
         np.save("camera2robot_H.npy", self.camera2robot_H)

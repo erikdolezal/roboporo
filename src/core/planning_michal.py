@@ -280,16 +280,18 @@ class PathFollowingPlanner:
                     for q_mid in candidate_qs:
                         cost = self.get_transition_cost(self.waypoints[i + 1], next_q, q_mid)
                         if cost < min_total_segment_cost:
-                            min_total_segment_cost = cost
-                            best_q_for_point = q_mid
+                            if self.obstacle.check_path_viable(q_start=q_mid.q_array, q_end=next_q.q_array):
+                                min_total_segment_cost = cost
+                                best_q_for_point = q_mid
                 elif i == len(q_path) - 1:
                     # Last point
                     prev_q = q_path[i - 1]
                     for q_mid in candidate_qs:
                         cost = self.get_transition_cost(self.waypoints[i], q_mid, prev_q)
                         if cost < min_total_segment_cost:
-                            min_total_segment_cost = cost
-                            best_q_for_point = q_mid
+                            if self.obstacle.check_path_viable(q_start=prev_q.q_array, q_end=q_mid.q_array):
+                                min_total_segment_cost = cost
+                                best_q_for_point = q_mid
                 else:
 
                     prev_q = q_path[i - 1]
@@ -302,8 +304,11 @@ class PathFollowingPlanner:
                             continue
                         total_segment_cost = cost1 + cost2
                         if total_segment_cost < min_total_segment_cost:
-                            min_total_segment_cost = total_segment_cost
-                            best_q_for_point = q_mid
+                            if self.obstacle.check_path_viable(q_start=prev_q.q_array, q_end=q_mid.q_array) and self.obstacle.check_path_viable(q_start=q_mid.q_array, q_end=next_q.q_array):
+                                min_total_segment_cost = total_segment_cost
+                                best_q_for_point = q_mid
+                            # else:
+                            #    print(f"Rejected candidate at path index {i} due to collision during smoothing.")
 
                 old_total_cost = sum(self.get_transition_cost(self.waypoints[j], q_path[j], q_path[j - 1]) if j > 0 else 0 for j in range(len(q_path)))
                 temp_path = q_path.copy()

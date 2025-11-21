@@ -15,9 +15,9 @@ from src.core.helpers import visualize_homography, project_homography, draw_3d_f
 if __name__ == "__main__":
     robot = RobotInterface(CRS97(tty_dev=None))
     maze_position = SE3(
-        translation=np.array([0.30, 0.16, 0.05]),
+        translation=np.array([0.30, -0.16, 0.05]),
         rotation=SO3.from_euler_angles(
-            np.deg2rad(np.array([0.0, 0, -35])),
+            np.deg2rad(np.array([0.0, 0, -42])),
             ["x", "y", "z"],
         ),
     )

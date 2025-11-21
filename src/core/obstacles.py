@@ -77,15 +77,21 @@ class Obstacle:
 
     def get_colision_points(self, num_of_colision_points=50) -> np.ndarray:
         """Get 50 evenly spaced colision points along the centerline."""
+        points = []
         if self.line_final is None:
             raise ValueError("Centerline not transformed. Call tranform_centerline() first.")
         if num_of_colision_points > 0:
-            total_points = len(self.line_final)
-            step = total_points / num_of_colision_points
-            points = [self.line_final[int(i * step)] for i in range(num_of_colision_points)]
+            if num_of_colision_points > len(self.line_final):
+                num_of_colision_points = len(self.line_final)
+                points = [self.line_final[i] for i in range(len(self.line_final))]
+            else:
+                total_points = len(self.line_final)
+                step = total_points / num_of_colision_points
+                points = [self.line_final[int(i * step)] for i in range(num_of_colision_points)]
+
             print(f"Generated {len(points)} collision points.")
             return np.array(points)
-        points = []
+
         return np.array(points)
 
     def get_centerline(self) -> np.ndarray:

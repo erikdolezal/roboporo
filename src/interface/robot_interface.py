@@ -93,9 +93,19 @@ class RobotInterface:
                 actual_pose = self.get_actual_pose()
                 real_positions.append({"translation_vector": actual_pose.translation.tolist()})
 
-        self.camera2robot_H = find_hoop_homography(images, real_positions)
+        self.camera2robot_H, src_points, dest_points, mask = find_hoop_homography(images, real_positions)
         print("Computed homography:\n", self.camera2robot_H)
-        visualize_homography(images[0], self.camera2robot_H, real_positions=np.array([x["translation_vector"][:2] for x in real_positions]))
+        def draw_extra(ax):
+            projected_points = project_homography(self.camera2robot_H, np.array(src_points))
+            projected_positions = project_homography(np.linalg.inv(self.camera2robot_H), dest_points)
+            ax[0].plot(*src_points.T, 'o', c="red")
+            ax[0].plot(*projected_positions[~mask].T, 'o', c="black")
+            ax[0].plot(*projected_positions[mask].T, 'o', c="green")
+            ax[1].plot(*dest_points.T, 'o', c="red")
+            ax[1].plot(*projected_points[~mask].T, 'o', c="black")
+            ax[1].plot(*projected_points[mask].T, 'o', c="green")
+
+        visualize_homography(images[0], self.camera2robot_H, draw_extra=draw_extra)
         np.save("camera2robot_H.npy", self.camera2robot_H)
 
     def get_maze_position(self):

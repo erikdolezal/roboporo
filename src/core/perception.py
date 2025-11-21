@@ -66,5 +66,5 @@ def find_hoop_homography(images: ArrayLike, hoop_positions: List[dict]) -> np.nd
     dest_points = dest_points[found_hoop_idx]
     print(np.array([src_points]), np.array([dest_points]))
     homography, mask = cv2.findHomography(np.array(src_points), np.array(dest_points))
-    return homography
+    return homography, src_points, dest_points, mask
 

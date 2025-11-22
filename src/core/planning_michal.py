@@ -168,7 +168,7 @@ class PathFollowingPlanner:
             + 10 * (1 if candidate_q.hoop_distance < 0.01 else 0)
             + 20
         )
-        return float(cost) if cost < 60 else float(cost) + 200  ## neeeds to change constant for penalty if weights adjusted!!!
+        return float(cost) if cost < 70 else float(cost) + 200  ## neeeds to change constant for penalty if weights adjusted!!!
 
     def backward_greedy_search(self, all_ik_solutions):
         # Shared state across all threads

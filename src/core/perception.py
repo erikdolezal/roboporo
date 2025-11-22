@@ -144,43 +144,45 @@ def optimize_homography_yaw_error(robot, src_positions, q_positions):
     world_background = fig.canvas.copy_from_bbox(ax[1].bbox)
 
 
-    init_transform = robot.camera2robot_H.copy()
-    best_hoop_transform = init_transform.copy()
+    init_transform = robot.camera2robot_H
+    best_hoop_transform = init_transform
     best_homography = None
     best_inliers = np.zeros(src_positions.shape[0], dtype=bool)
+    best_error = np.inf
 
-    for yaw_angle in np.linspace(-10, 10, 100):
-        robot2hoop = SE3(translation=np.array([-0.135, 0.0, 0.0]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([np.deg2rad(yaw_angle), 180.0])), "zy"))
+    for yaw_angle in np.deg2rad(np.linspace(-5, 5, 1000)):
+        robot2hoop = SE3(translation=np.array([-0.135*np.cos(yaw_angle), -0.135*np.sin(yaw_angle), 0.01]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([0, 180.0])), "zy"))
         robot.robot2hoop = robot2hoop
         fk_positions = np.array([transform.translation[:2] for transform in [robot.hoop_fk(q) for q in q_positions]])
 
-        H, mask = cv2.findHomography(src_positions, fk_positions, cv2.RANSAC, 0.001)
+        H, mask = cv2.findHomography(src_positions, fk_positions, cv2.RANSAC, 0.002)
 
-        if np.sum(mask) > np.sum(best_inliers):
+        i2w = project_homography(H, src_positions)
+        w2i = project_homography(np.linalg.inv(H), fk_positions)
+        error = np.sum(np.linalg.norm(fk_positions - i2w, axis=1))
+        if best_error > error:
             best_inliers = mask.flatten().astype(bool)
             best_homography = H
-            best_hoop_transform = robot.robot2hoop.copy()
-            print(f"New best yaw: {yaw_angle} with {np.sum(best_inliers)} inliers")
+            best_hoop_transform = robot.robot2hoop
+            best_error = error
+            print(f"New best yaw: {np.rad2deg(yaw_angle)} with {np.sum(best_inliers)} inliers")
         # Update plots
         fig.canvas.restore_region(img_background)
+        fig.canvas.restore_region(world_background)
+
         img_point_line.set_data(*src_positions.T)
         mask = mask.flatten().astype(bool)
 
-        i2w = project_homography(H, src_positions)
-
-        img_fk_inliers.set_data(*i2w[mask].T)
-        img_fk_outliers.set_data(*i2w[~mask].T)
+        img_fk_inliers.set_data(*w2i[mask].T)
+        img_fk_outliers.set_data(*w2i[~mask].T)
         ax[0].draw_artist(img_point_line)
         ax[0].draw_artist(img_fk_inliers)
         ax[0].draw_artist(img_fk_outliers)
         fig.canvas.blit(ax[0].bbox)
 
-        w2i = project_homography(np.linalg.inv(H), fk_positions)
-
-        fig.canvas.restore_region(world_background)
         world_point_line.set_data(*fk_positions.T)
-        world_h_inliers.set_data(*w2i[mask].T)
-        world_h_outliers.set_data(*w2i[~mask].T)
+        world_h_inliers.set_data(*i2w[mask].T)
+        world_h_outliers.set_data(*i2w[~mask].T)
         ax[1].draw_artist(world_point_line)
         ax[1].draw_artist(world_h_inliers)
         ax[1].draw_artist(world_h_outliers)
@@ -190,25 +192,26 @@ def optimize_homography_yaw_error(robot, src_positions, q_positions):
     
     plt.close(fig)
 
+    
+
     robot.robot2hoop = best_hoop_transform
     print("best hoop transform: ", robot.robot2hoop)
-    robot.camera2robot_H = best_homography
-
     dest_points = np.array([transform.translation[:2] for transform in [robot.hoop_fk(q) for q in q_positions]])
 
+    best_homography, _ = cv2.findHomography(src_positions, dest_points, 0)
+
+    robot.camera2robot_H = best_homography
     def draw_extra(ax):
         projected_points = project_homography(robot.camera2robot_H, np.array(src_positions))
         projected_positions = project_homography(np.linalg.inv(robot.camera2robot_H), dest_points)
         ax[0].plot(*src_positions.T, 'o', c="red")
-        ax[0].plot(*projected_positions[~best_inliers].T, 'o', c="black")
-        ax[0].plot(*projected_positions[best_inliers].T, 'o', c="green")
+        ax[0].plot(*projected_positions.T, 'o', c="green")
         ax[1].plot(*dest_points.T, 'o', c="red")
-        ax[1].plot(*projected_points[~best_inliers].T, 'o', c="black")
-        ax[1].plot(*projected_points[best_inliers].T, 'o', c="green")
+        ax[1].plot(*projected_points.T, 'o', c="green")
 
     visualize_homography(img, robot.camera2robot_H, draw_extra=draw_extra)
     np.save("camera2robot_H.npy", robot.camera2robot_H)
-    np.save("robot2hoop_SE3.npy", robot.robot2hoop.as_homogeneous())
+    np.save("robot2hoop_SE3.npy", robot.robot2hoop.homogeneous())
 
         
 

@@ -340,8 +340,7 @@ class PathFollowingPlanner:
         num_smoothing_iterations = 1
         q_path = self.smooth_path(q_path, all_ik_solutions, planner_start_time, num_smoothing_iterations)
 
-        for i in range(len(q_path)):
-            print(f"transition cost {i}: {self.get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0:.2f}")
+
 
         new_total_cost = sum(self.get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))
 
@@ -351,6 +350,11 @@ class PathFollowingPlanner:
 
         else:
             print(f"Final path found with {len(q_path)} points after smoothing for cost {new_total_cost:.2f}.")
+        
+        for i in range(len(q_path)):
+            transition_cost = self.get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0
+            assert transition_cost < 350, f"Transition cost too high: {transition_cost:.2f}"
+            print(f"transition cost {i}: {transition_cost:.2f}")
 
         print(f"took total time: {time.time() - planner_start_time:.2f} seconds")
 

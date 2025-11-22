@@ -12,7 +12,7 @@ class RobotInterface:
     def __init__(self, robot):
         self.robot = robot
         self.camera2robot_H = np.eye(3) if not os.path.exists("camera2robot_H.npy") else np.load("camera2robot_H.npy")
-        self.robot2hoop = SE3(translation=np.array([-0.13, 0.005, 0.0]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 180.0, 0.0])), "xyz")) if not os.path.exists("robot2hoop_SE3.npy") else SE3().from_homogeneous(np.load("robot2hoop_SE3.npy"))
+        self.robot2hoop = SE3(translation=np.array([-0.135, 0.00, 0.01]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 180.0, 0.0])), "xyz")) if not os.path.exists("robot2hoop_SE3.npy") else SE3().from_homogeneous(np.load("robot2hoop_SE3.npy"))
 
     def __getattr__(self, name):
         return getattr(self.robot, name)
@@ -85,7 +85,7 @@ class RobotInterface:
     def calibrate_camera(self):
         x_positions = np.arange(0.35, 0.56, 0.05)
         y_positions = np.arange(-0.2, 0.18, 0.04)
-        target_positions = np.array([[x, y, 0.045] for x in x_positions for y in y_positions])
+        target_positions = np.array([[x, y, 0.035] for x in x_positions for y in y_positions])
         images = []
         real_positions = []
         q_positions = []
@@ -101,7 +101,7 @@ class RobotInterface:
                 q_positions.append(self.robot.get_q())
 
         src_positions, img_idx = find_hoop_positions(images)
-        optimize_homography_yaw_error(self.robot, src_positions, np.array(q_positions)[img_idx])
+        optimize_homography_yaw_error(self, src_positions, np.array(q_positions)[img_idx])
 
         #self.camera2robot_H, src_points, dest_points, mask = find_hoop_homography(images, real_positions)
         #mask = mask.astype(bool).flatten()
@@ -133,7 +133,7 @@ class RobotInterface:
         assert ids is not None, "No aruco found"
 
         target_corners = np.array([project_homography(self.camera2robot_H, corner_set[0]) for corner_set in corners]).reshape(-1, 2)
-        target_corners = np.hstack((target_corners, 0.035 * np.ones((target_corners.shape[0], 1))))
+        target_corners = np.hstack((target_corners, 0.03 * np.ones((target_corners.shape[0], 1))))
 
         aruco_corners = np.array([aruco_config[id[0]]["corners"] for id in ids]).reshape(-1, 3) if ids is not None else np.array([[]])
 

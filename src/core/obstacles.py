@@ -127,7 +127,7 @@ class Obstacle:
         positions = []
         tangents = []
         point_radius = 40
-        lookahead = 20
+        lookahead = 0
         for i in range(len(self.line_final)):
             position = np.mean(self.line_final[max(0, i - 5) : min(total_points, i + 1 + 5)], axis=0)
 
@@ -162,7 +162,7 @@ class Obstacle:
         for i in range(len(tangents)):
             dist = np.linalg.norm(positions[i] - prev_position)
             dot_product = np.dot(tangents[i], prev_tangent)
-            if i == 0 or i == len(tangents) - 1 or (dist < dist_th and dot_product < np.cos(np.deg2rad(15))) or (dist >= dist_th and dot_product < np.cos(np.deg2rad(5))) or dist > 0.5:
+            if i == 0 or i == len(tangents) - 1 or (dist < dist_th and dot_product < np.cos(np.deg2rad(15))) or (dist >= dist_th and dot_product < np.cos(np.deg2rad(5))) or dist > 0.08:
                 prev_position = positions[i].copy()
                 prev_tangent = tangents[i].copy()
                 tangent = tangents[i]
@@ -207,9 +207,10 @@ class Obstacle:
 
         first_se3 = se3_list[0]
         first_tangent = first_se3.rotation.rot[:, 2]  # x-axis is the tangent
-        start_position = first_se3.translation + 0.05 * first_tangent  # 5 cm = 0.05 m
-        start_se3 = SE3(translation=start_position, rotation=first_se3.rotation)
-        se3_list.insert(0, start_se3)
+        for i in range(3):
+            start_position = first_se3.translation + (i + 1) * 0.02 * first_tangent  # 5 cm = 0.05 m
+            start_se3 = SE3(translation=start_position, rotation=first_se3.rotation)
+            se3_list.insert(0, start_se3)
 
         self.waypoints = se3_list
         return se3_list

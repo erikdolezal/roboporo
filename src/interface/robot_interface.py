@@ -3,7 +3,7 @@ from src.core.se3 import SE3
 from src.core.so3 import SO3
 import numpy as np
 import os
-from src.core.perception import find_hoop_homography
+from src.core.perception import find_hoop_homography, optimize_homography_yaw_error, find_hoop_positions
 from src.core.helpers import visualize_homography, project_homography
 from configs.aruco_config import aruco_config
 
@@ -12,7 +12,7 @@ class RobotInterface:
     def __init__(self, robot):
         self.robot = robot
         self.camera2robot_H = np.eye(3) if not os.path.exists("camera2robot_H.npy") else np.load("camera2robot_H.npy")
-        self.robot2hoop = SE3(translation=np.array([-0.13, 0.005, 0.0]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 180.0, 0.0])), "xyz"))
+        self.robot2hoop = SE3(translation=np.array([-0.13, 0.005, 0.0]), rotation=SO3().from_euler_angles(np.deg2rad(np.array([0.0, 180.0, 0.0])), "xyz")) if not os.path.exists("robot2hoop_SE3.npy") else SE3().from_homogeneous(np.load("robot2hoop_SE3.npy"))
 
     def __getattr__(self, name):
         return getattr(self.robot, name)
@@ -88,6 +88,7 @@ class RobotInterface:
         target_positions = np.array([[x, y, 0.045] for x in x_positions for y in y_positions])
         images = []
         real_positions = []
+        q_positions = []
         for pos in target_positions:
             moved = self.move_absolute(0.0, 0.0, 0.0, pos[0], pos[1], pos[2])
             if not moved:
@@ -97,23 +98,27 @@ class RobotInterface:
                 images.append(img)
                 actual_pose = self.get_actual_pose()
                 real_positions.append({"translation_vector": actual_pose.translation.tolist()})
+                q_positions.append(self.robot.get_q())
 
-        self.camera2robot_H, src_points, dest_points, mask = find_hoop_homography(images, real_positions)
-        mask = mask.astype(bool).flatten()
-        print("Computed homography:\n", self.camera2robot_H)
-        print(np.linalg.norm(project_homography(self.camera2robot_H, src_points) - dest_points, axis=1))
-        def draw_extra(ax):
-            projected_points = project_homography(self.camera2robot_H, np.array(src_points))
-            projected_positions = project_homography(np.linalg.inv(self.camera2robot_H), dest_points)
-            ax[0].plot(*src_points.T, 'o', c="red")
-            ax[0].plot(*projected_positions[~mask].T, 'o', c="black")
-            ax[0].plot(*projected_positions[mask].T, 'o', c="green")
-            ax[1].plot(*dest_points.T, 'o', c="red")
-            ax[1].plot(*projected_points[~mask].T, 'o', c="black")
-            ax[1].plot(*projected_points[mask].T, 'o', c="green")
+        src_positions, img_idx = find_hoop_positions(images)
+        optimize_homography_yaw_error(self.robot, src_positions, np.array(q_positions)[img_idx])
 
-        visualize_homography(images[0], self.camera2robot_H, draw_extra=draw_extra)
-        np.save("camera2robot_H.npy", self.camera2robot_H)
+        #self.camera2robot_H, src_points, dest_points, mask = find_hoop_homography(images, real_positions)
+        #mask = mask.astype(bool).flatten()
+        #print("Computed homography:\n", self.camera2robot_H)
+        #print(np.linalg.norm(project_homography(self.camera2robot_H, src_points) - dest_points, axis=1))
+        #def draw_extra(ax):
+        #    projected_points = project_homography(self.camera2robot_H, np.array(src_points))
+        #    projected_positions = project_homography(np.linalg.inv(self.camera2robot_H), dest_points)
+        #    ax[0].plot(*src_points.T, 'o', c="red")
+        #    ax[0].plot(*projected_positions[~mask].T, 'o', c="black")
+        #    ax[0].plot(*projected_positions[mask].T, 'o', c="green")
+        #    ax[1].plot(*dest_points.T, 'o', c="red")
+        #    ax[1].plot(*projected_points[~mask].T, 'o', c="black")
+        #    ax[1].plot(*projected_points[mask].T, 'o', c="green")
+#
+        #visualize_homography(images[0], self.camera2robot_H, draw_extra=draw_extra)
+        #np.save("camera2robot_H.npy", self.camera2robot_H)
 
     def get_maze_position(self):
         img = self.robot.grab_image()

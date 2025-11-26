@@ -1,0 +1,156 @@
+E
+Generated 200 collision points.
+Generating IK solutions using 12 threads...
+Processed waypoint 7/23
+Processed waypoint 6/23
+Processed waypoint 5/23
+Processed waypoint 8/23
+Processed waypoint 4/23
+Processed waypoint 0/23
+Processed waypoint 1/23
+Processed waypoint 2/23
+Processed waypoint 9/23
+Processed waypoint 3/23
+Processed waypoint 10/23
+Processed waypoint 11/23
+Processed waypoint 23/23
+Processed waypoint 14/23
+Processed waypoint 13/23
+Processed waypoint 12/23
+Processed waypoint 17/23
+Processed waypoint 20/23
+Processed waypoint 16/23
+Processed waypoint 15/23
+Processed waypoint 19/23
+Processed waypoint 21/23
+Processed waypoint 18/23
+Processed waypoint 22/23
+done generating ik solutions
+All search waypoint 0 has 181 IK solutions.
+All search waypoint 1 has 206 IK solutions.
+All search waypoint 2 has 217 IK solutions.
+All search waypoint 3 has 212 IK solutions.
+All search waypoint 4 has 118 IK solutions.
+All search waypoint 5 has 96 IK solutions.
+All search waypoint 6 has 96 IK solutions.
+All search waypoint 7 has 90 IK solutions.
+All search waypoint 8 has 96 IK solutions.
+All search waypoint 9 has 123 IK solutions.
+All search waypoint 10 has 129 IK solutions.
+All search waypoint 11 has 190 IK solutions.
+All search waypoint 12 has 197 IK solutions.
+All search waypoint 13 has 172 IK solutions.
+All search waypoint 14 has 164 IK solutions.
+All search waypoint 15 has 184 IK solutions.
+All search waypoint 16 has 204 IK solutions.
+All search waypoint 17 has 204 IK solutions.
+All search waypoint 18 has 220 IK solutions.
+All search waypoint 19 has 146 IK solutions.
+All search waypoint 20 has 118 IK solutions.
+All search waypoint 21 has 152 IK solutions.
+All search waypoint 22 has 132 IK solutions.
+All search waypoint 23 has 8 IK solutions.
+Starting parallel exhaustive search for the best initial path...
+Searching using 8 threads...
+Starting search from end configuration[-1]: -1.13
+Starting search from end configuration[-1]: 2.01
+Starting search from end configuration[-1]: 1.17
+Starting search from end configuration[-1]: -1.97
+Starting search from end configuration[-1]: 0.75
+Starting search from end configuration[-1]: -2.39
+Starting search from end configuration[-1]: -2.77
+Starting search from end configuration[-1]: 0.37
+  -> New best path with cost: 1054.59
+  -> New best path with cost: 811.38
+Path from waypoint 18 candidate rejected due to collision. Terminating branch.
+Path from waypoint 18 candidate rejected due to collision. Terminating branch.
+Optimal coarse path found with cost: 811.38
+Starting path smoothing...
+  -> Smoothing iteration 1/1 complete, new cost 793.67. 
+Final path found with 24 points after smoothing for cost 793.67.
+transition cost 0: 0.00
+transition cost 1: 21.23
+transition cost 2: 20.59
+transition cost 3: 30.78
+transition cost 4: 30.80
+transition cost 5: 31.72
+transition cost 6: 32.54
+transition cost 7: 42.80
+transition cost 8: 35.84
+transition cost 9: 25.92
+transition cost 10: 33.16
+transition cost 11: 34.42
+transition cost 12: 39.21
+transition cost 13: 41.25
+transition cost 14: 39.12
+transition cost 15: 31.13
+transition cost 16: 30.63
+transition cost 17: 37.82
+transition cost 18: 53.04
+transition cost 19: 49.95
+transition cost 20: 36.72
+transition cost 21: 29.87
+transition cost 22: 32.75
+transition cost 23: 32.40
+took total time: 17.77 seconds
+
+B
+PS C:\Users\bouda\Documents\gitlab\code\roboporo> & C:\Users\bouda\AppData\Local\Programs\Python\Python312\python.exe c:/Users/bouda/Documents/gitlab/code/roboporo/test_michal.py
+Generated 200 collision points.
+Generating IK solutions using 12 threads...
+Processed waypoint 11/12
+Processed waypoint 12/12
+Processed waypoint 9/12
+Processed waypoint 10/12
+Processed waypoint 8/12
+Processed waypoint 7/12
+Processed waypoint 6/12
+Processed waypoint 4/12
+Processed waypoint 1/12
+Processed waypoint 3/12
+Processed waypoint 5/12
+Processed waypoint 0/12
+Processed waypoint 2/12
+done generating ik solutions
+All search waypoint 0 has 752 IK solutions.
+All search waypoint 1 has 742 IK solutions.
+All search waypoint 2 has 734 IK solutions.
+All search waypoint 3 has 722 IK solutions.
+All search waypoint 4 has 518 IK solutions.
+All search waypoint 5 has 579 IK solutions.
+All search waypoint 6 has 433 IK solutions.
+All search waypoint 7 has 350 IK solutions.
+All search waypoint 8 has 263 IK solutions.
+All search waypoint 9 has 222 IK solutions.
+All search waypoint 10 has 232 IK solutions.
+All search waypoint 11 has 212 IK solutions.
+All search waypoint 12 has 8 IK solutions.
+Starting parallel exhaustive search for the best initial path...
+Searching using 8 threads...
+Starting search from end configuration[-1]: 2.79
+Starting search from end configuration[-1]: -0.36
+Starting search from end configuration[-1]: 2.41
+Starting search from end configuration[-1]: -0.73
+Starting search from end configuration[-1]: -1.13
+Starting search from end configuration[-1]: 2.01
+Starting search from end configuration[-1]: -1.97
+Starting search from end configuration[-1]: 1.17
+  -> New best path with cost: 318.53
+Optimal coarse path found with cost: 318.53
+Starting path smoothing...
+  -> Smoothing iteration 1/1 complete, new cost 324.21. 
+Final path found with 13 points after smoothing for cost 324.21.
+transition cost 0: 0.00
+transition cost 1: 16.70
+transition cost 2: 17.02
+transition cost 3: 27.54
+transition cost 4: 28.42
+transition cost 5: 27.44
+transition cost 6: 27.39
+transition cost 7: 27.08
+transition cost 8: 27.55
+transition cost 9: 31.63
+transition cost 10: 31.40
+transition cost 11: 32.83
+transition cost 12: 29.20
+took total time: 17.25 seconds

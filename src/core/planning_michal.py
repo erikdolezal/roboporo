@@ -11,7 +11,6 @@ from src.core.obstacles import Obstacle
 from copy import deepcopy
 
 
-# Global lock for thread-safe printing
 print_lock = Lock()
 Z_LIMIT = 0.02
 
@@ -31,19 +30,15 @@ class Q:
 
 def _process_waypoint_ik(waypoint_idx, waypoint: SE3, total_waypoints, q_max, q_min, ik_func, obstacle: Obstacle, robot_interface: RobotInterface) -> list[Q]:
     """Worker function to process IK solutions for a single waypoint."""
-    # Generate multiple orientations around the tangent axis
     ik_sols_all = []
 
     if waypoint_idx == total_waypoints - 1:
-        # For the last waypoint, only rotate around tangent
         tilt_angles_deg = [0]
         roll_angles_deg = [0]
     elif waypoint_idx == total_waypoints - 2:
-        # For the last waypoint, only rotate around tangent
         tilt_angles_deg = [-35, -15, -5, 0, 5, 15, 35]
         roll_angles_deg = [-35, -15, -5, 0, 5, 15, 35]
     else:
-        # For all other waypoints, include tilt and roll
         tilt_angles_deg = [-35, -15, -5, 0, 5, 15, 35]  # Degrees of tilt around Y
         roll_angles_deg = [-35, -15, -5, 0, 5, 15, 35]  # Degrees of roll around X
     tilt_angles_rad = [np.radians(deg) for deg in tilt_angles_deg]
@@ -51,20 +46,16 @@ def _process_waypoint_ik(waypoint_idx, waypoint: SE3, total_waypoints, q_max, q_
 
     for tilt_angle in tilt_angles_rad:
         for roll_angle in roll_angles_rad:
-            # Create tilt (Y) and roll (X) rotations
             tilt_rotation = SO3.from_angle_axis(tilt_angle, np.array([0, 1, 0]))
             roll_rotation = SO3.from_angle_axis(roll_angle, np.array([1, 0, 0]))
 
-            # Apply tilt and roll to the base waypoint rotation
             tilted_and_rolled_rotation = waypoint.rotation * tilt_rotation * roll_rotation
 
-            # --- Existing: Rotate around the tangent (local Z-axis) ---
             num_rotations = 12
             for angle in np.linspace(0, 2 * np.pi, num_rotations, endpoint=False):
                 # Rotate around z-axis (tangent direction)
                 rot_around_tangent = SO3.from_angle_axis(angle, np.array([0, 0, 1]))
 
-                # Apply tangent rotation to the already modified rotation
                 final_rotation = tilted_and_rolled_rotation * rot_around_tangent
 
                 modified_waypoint = SE3(translation=waypoint.translation, rotation=final_rotation)
@@ -86,16 +77,13 @@ def _process_waypoint_ik(waypoint_idx, waypoint: SE3, total_waypoints, q_max, q_
     if len(ik_sols_filtered) == 0:
         raise ValueError(f"No valid IK solution within joint limits for waypoint {waypoint_idx} at {waypoint}.")
 
-    # Convert to Q objects with pre-calculated costs
     q_objects = []
     for q_array in ik_sols_filtered:
         q_obj = Q(q_array)
 
-        # Pre-calculate all costs
         q_obj.T_pose = SE3().from_homogeneous(robot_interface.fk(q_array))
         q_obj.hoop_pose = robot_interface.hoop_fk(q_array)
 
-        # Type guard assertions since we just set these values
         assert q_obj.hoop_pose is not None
         assert q_obj.T_pose is not None
 
@@ -150,10 +138,8 @@ class PathFollowingPlanner:
 
     def get_transition_cost(self, waypoint, candidate_q: Q, prev_q: Q) -> float:
         """Calculates the transition cost from a previous configuration to a candidate."""
-        # Use pre-calculated values from Q object
         prev_q_array = prev_q.q_array
 
-        # Type guard assertion since Q objects should have these values set
         assert candidate_q.T_pose is not None
 
         # important to tune dot prod weight
@@ -183,7 +169,7 @@ class PathFollowingPlanner:
                     current_min = shared_state["min_total_cost"]
 
                 if waypoint_level == -1:
-                    # Found a complete path - update shared state if better
+                    # Found a complete path
                     with shared_state["lock"]:
                         if current_cost < shared_state["min_total_cost"]:
                             shared_state["min_total_cost"] = current_cost
@@ -192,7 +178,7 @@ class PathFollowingPlanner:
                                 print(f"  -> New best path with cost: {shared_state['min_total_cost']:.2f}")
                     return
 
-                # Early termination based on shared minimum
+
                 if current_cost * 1.01 >= current_min:
                     return
 
@@ -204,16 +190,16 @@ class PathFollowingPlanner:
                 next_q = current_path[-1]
                 sorted_candidates = sorted(all_ik_solutions[waypoint_level], key=lambda q: self.get_transition_cost(self.waypoints[waypoint_level], q, next_q))
 
-                # Try candidates in order of cost until we find a viable path
+
                 found_viable = False
                 for candidate_q in sorted_candidates:
                     if self.obstacle.check_path_viable(q_start=next_q.q_array, q_end=candidate_q.q_array):
                         transition_cost = self.get_transition_cost(self.waypoints[waypoint_level], candidate_q, next_q)
                         find_best_path_recursive(waypoint_level - 1, current_path + [candidate_q], current_cost + transition_cost)
                         found_viable = True
-                        break  # Only take the first (cheapest) viable candidate
+                        break  # Only take the first and cheapest viable candidate
 
-                # Also try a candidate from one-quarter of the way through the sorted list for more exploration
+
                 """
                 if found_viable and len(sorted_candidates) > 7:
                     one_quarter_idx = len(sorted_candidates) // 4
@@ -222,22 +208,19 @@ class PathFollowingPlanner:
                         if self.obstacle.check_path_viable(q_start=next_q.q_array, q_end=candidate_q.q_array):
                             transition_cost = self.get_transition_cost(self.waypoints[waypoint_level], candidate_q, next_q)
                             find_best_path_recursive(waypoint_level - 1, current_path + [candidate_q], current_cost + transition_cost)
-                            break  # Only take the first viable candidate from this section
+                            break
                 """
 
                 if not found_viable:
-                    # No viable path found from this waypoint, terminate this branch
                     with print_lock:
                         print(f"Path from waypoint {waypoint_level} candidate rejected due to collision. Terminating branch.")
                     return
 
-            # Start recursive search from this end point
             print(f"Starting search from end configuration[-1]: {q_end.q_array[-1]:.2f}")
             find_best_path_recursive(len(all_ik_solutions) - 2, [q_end], 0.0)
 
         print("Starting parallel exhaustive search for the best initial path...")
 
-        # Process each end configuration in parallel
         max_workers = min(len(all_ik_solutions[-1]), max(1, (os.cpu_count() or 1)))
         print(f"Searching using {max_workers} threads...")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -246,7 +229,7 @@ class PathFollowingPlanner:
             # Wait for all threads to complete
             for future in as_completed(futures):
                 try:
-                    future.result()  # This will raise any exceptions that occurred
+                    future.result()
                 except Exception as e:
                     print(f"Thread encountered error: {e}")
 
@@ -333,7 +316,7 @@ class PathFollowingPlanner:
 
         all_ik_solutions = self.get_all_ik_solutions()
 
-        q_path = self.backward_greedy_search(all_ik_solutions)  # Reverse to get from start to end
+        q_path = self.backward_greedy_search(all_ik_solutions)
         coarse_cost = sum(self.get_transition_cost(self.waypoints[i], q_path[i], q_path[i - 1]) if i > 0 else 0 for i in range(len(q_path)))
         coarse_path = deepcopy(q_path)
 

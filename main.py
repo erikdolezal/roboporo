@@ -4,7 +4,6 @@ import numpy as np
 from ctu_crs import CRS97, CRS93
 from src.interface.robot_interface import RobotInterface
 from src.core.obstacles import Obstacle
-from src.core.planning import PathFollowingPlanner
 from src.core.se3 import SE3
 from src.core.so3 import SO3
 import matplotlib.pyplot as plt
@@ -68,7 +67,7 @@ def main(args):
         obstacle = Obstacle(args.maze, "src/tools/models", maze_position)
         obstacle.prep_obstacle()
         maze_waypoints = obstacle.waypoints
-        planner = PathFollowingPlanner(robot, maze_waypoints, robot.hoop_ik)
+        planner = PlannerGreedyBckwrd(robot, maze_waypoints, robot.hoop_ik)
         best_q_list = planner.get_list_of_best_q()
 
         fig = plt.figure(figsize=(8, 8), layout="tight")

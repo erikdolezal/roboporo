@@ -1,4 +1,3 @@
-from src.core.planning import PathFollowingPlanner as PlannerIterative
 from src.core.planning_michal import PathFollowingPlanner as PlannerGreedyBckwrd
 from src.core.obstacles import Obstacle
 from ctu_crs import CRS97, CRS93
@@ -11,12 +10,32 @@ import matplotlib.pyplot as plt
 from src.core.helpers import visualize_homography, project_homography, draw_3d_frame
 
 
+def plot_q(q_list):
+    fig, ax = plt.subplots(figsize=(10, 5), layout="tight")
+    q_array = np.array(q_list)
+    if q_array.ndim != 2:
+        raise ValueError("q_list must be 2D (timesteps x joints)")
+    time_array = np.arange(q_array.shape[0])
+    cmap = plt.get_cmap("tab10")
+    n_joints = q_array.shape[1]
+    for i in range(n_joints):
+        ax.plot(time_array, q_array[:, i], color=cmap(i % 10), label=f"q{i}", linewidth=1.5)
+    # ensure same y-axis for all lines (single axis) and add small margin
+    y_min, y_max = q_array.min(), q_array.max()
+    margin = 0.05 * (y_max - y_min) if y_max > y_min else 0.1
+    ax.set_ylim(y_min - margin, y_max + margin)
+    ax.set_ylabel("q")
+    ax.set_xlabel("Waypoint index")
+    ax.legend(loc="best")
+    plt.show()
+
+
 if __name__ == "__main__":
     robot = RobotInterface(CRS97(tty_dev=None))
     maze_position = SE3(
-        translation=np.array([0.30, -0.16, 0.05]),
+        translation=np.array([0.30, 0.01, 0.05]),
         rotation=SO3.from_euler_angles(
-            np.deg2rad(np.array([0.0, 0, -42])),
+            np.deg2rad(np.array([0.0, 0, -32])),
             ["x", "y", "z"],
         ),
     )
@@ -49,7 +68,7 @@ if __name__ == "__main__":
     )
     
     """
-    obstacle = Obstacle(robot, "B", "src/tools/models", maze_position, num_of_colision_points=200)
+    obstacle = Obstacle(robot, "D", "src/tools/models", maze_position, num_of_colision_points=200)
     obstacle.prep_obstacle()
     maze_waypoints = obstacle.waypoints
 
@@ -78,6 +97,8 @@ if __name__ == "__main__":
     ax.set_zlabel("z")
     plt.show()
 
+    plot_q(best_q_list)
+
     obstacle.visualize_path(best_q_list)
 
     """
@@ -100,3 +121,4 @@ if __name__ == "__main__":
     ax.set_zlabel("z")
     plt.show()
     """
+

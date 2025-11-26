@@ -171,25 +171,18 @@ class Obstacle:
                 # Create rotation matrix with tangent as z-axis
                 z_axis = -tangent
 
-                # Choose arbitrary perpendicular vector for y-axis, handle singularity
                 if np.allclose(np.abs(z_axis), [0, 1, 0]):
-                    # Tangent is parallel to Y-axis, use Z-axis for cross product
                     x_axis = np.cross(z_axis, [0, 0, 1])
                 else:
-                    # Default case
                     x_axis = np.cross(z_axis, [0, 1, 0])
 
-                # Check for zero vector in case of unforeseen issues
                 if np.linalg.norm(x_axis) < 1e-6:
                     # If still a problem, use a fallback (e.g., world X-axis)
                     x_axis = np.cross(z_axis, [1, 0, 0])
 
                 x_axis = x_axis / np.linalg.norm(x_axis)
-
-                # Complete the orthonormal basis
                 y_axis = np.cross(z_axis, x_axis)  # Swapped order to ensure right-handed system
 
-                # Create rotation matrix
                 rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
 
                 # Ensure it's a valid rotation matrix (handle potential floating point inaccuracies)
@@ -199,8 +192,6 @@ class Obstacle:
                     rotation_matrix = np.column_stack([x_axis, y_axis, z_axis])
 
                 # print(f"Rotation matrix at waypoint {i}:\n{rotation_matrix}\n")
-
-                # Create SE3 transformation
 
                 se3 = SE3(translation=position, rotation=SO3(rotation_matrix))
                 se3_list.append(se3)
@@ -226,12 +217,10 @@ class Obstacle:
         assert hoop_thickness is not None, "hoop_collision_radius must be provided when for_path is True."
 
         fk_frames = self.fk_for_all(true_q)
-        fk_frames.append(fk_frames[-1] * self.hoop_stick)  # Append end-effector frame again for hoop collision check
+        fk_frames.append(fk_frames[-1] * self.hoop_stick) 
 
         if len(self.colision_points) == 0:
             return False, 0.4, 0.035
-
-        # Convert collision points to numpy array for vectorized operations
         collision_points_array = np.array(self.colision_points)  # Shape: (N, 3)
 
         all_dists = []
@@ -240,7 +229,6 @@ class Obstacle:
             frame_A = fk_frames[i]
             frame_B = fk_frames[i + 1]
 
-            # Use appropriate radius for each segment
             if i == 1:  # first segment
                 # print(f"len of frame AB {frame_A}, {frame_B}")
                 radius = self.thick_arm_radius
@@ -251,14 +239,12 @@ class Obstacle:
             elif i == 6:  # hoop stick
                 radius = self.hoop_stick_radius
             else:
-                radius = self.thick_arm_radius  # Default fallback
+                radius = self.thick_arm_radius
 
             collisions, dists = self.check_segment_to_points_collision_vectorized(i, frame_A, frame_B, collision_points_array, radius)
             all_dists.extend(dists)
 
-            # Check if any collision occurred
             if np.any(collisions):
-                # Find the first collision (to maintain same behavior as original)
                 # print("Arm collision detected.")
                 collision_idx = np.where(collisions)[0][0]
                 return True, float(dists[collision_idx]), 0.033
@@ -273,86 +259,10 @@ class Obstacle:
 
         return False, float(min(all_dists)), float(min(circle_dists))
 
-    def check_segment_to_point_collision(self, idx, frame_A: SE3, frame_B: SE3, point_P: np.ndarray, radius: float) -> tuple[bool, float]:
-        """
-        Calculates the minimum distance between a line segment (A-B) and a point (P).
-        Returns True if the distance is less than or equal to the given radius.
-        """
-        A = frame_A.translation
-        B = frame_B.translation
-        v = B - A
-
-        if A[2] - radius < self.ground_limit or B[2] - radius < self.ground_limit:
-            # ground check
-            segment_length = np.linalg.norm(v)
-            if segment_length < 1e-9:  # Degenerate case: A ≈ B
-                min_z = min(A[2], B[2])
-                clearance = min_z - radius - self.ground_limit
-            else:
-                u = v / segment_length
-
-                if abs(u[2]) > 0.999:  # Nearly vertical cylinder
-                    radius_z_component = 0
-                else:
-
-                    # The z-component of the perpendicular vector pointing most downward is:
-                    # -sqrt(u[0]² + u[1]²) = -sqrt(1 - u[2]²)
-                    horizontal_component = np.sqrt(u[0] ** 2 + u[1] ** 2)  # = sqrt(1 - u[2]²)
-                    radius_z_component = radius * horizontal_component
-
-                surface_z_at_A = A[2] - radius_z_component
-                surface_z_at_B = B[2] - radius_z_component
-                min_z = min(surface_z_at_A, surface_z_at_B)
-
-                clearance = min_z - self.ground_limit
-
-            if clearance <= 0.0:
-                # print("Ground collision detected.")
-                return True, 0.0
-
-        # Vector from A to B (the segment)
-
-        # Vector from A to P
-        w = point_P - A
-
-        # Projection of w onto v
-        dot_vv = np.dot(v, v)
-        if dot_vv < 1e-9:  # Segment is effectively a point
-            return False, 0.2
-
-        t = np.dot(w, v) / dot_vv
-
-        # Only consider orthogonal projections that lie strictly on the segment
-
-        if idx == 3 or idx == 5:
-            t = np.maximum(0, np.minimum(1, t))
-
-        else:
-            if not (0.0 < t < 1.0):
-                return False, 0.4
-
-        closest_point = A + t * v
-        distance = np.linalg.norm(point_P - closest_point)
-
-        clearance = distance - radius
-
-        return bool(clearance <= 0.0), float(clearance if bool(clearance >= 0.0) else 0)
 
     def check_circle_to_point_collision_vectorized(self, circle_SE3: SE3, points_P: np.ndarray, circle_radius: float = 0.03, collision_threshold: float = 0.004) -> tuple[np.ndarray, list[float]]:
         """
-        Vectorized collision detection between a hoop ring and multiple points for wire threading.
-        Only detects collision when wire actually hits the ring material, never for center-passing wire.
-        Calculates true 3D distance from points to the torus surface.
-
-        Args:
-            circle_SE3: SE3 transformation defining the circle's position and orientation
-            points_P: Array of points to check collision against, shape (N, 3)
-            circle_radius: Major radius of the circle (distance from center to the ring)
-            collision_threshold: Thickness of the ring material for collision detection
-
-        Returns:
-            tuple: (collision_array, distances_list) where collision_array is boolean array of shape (N,)
-                   and distances_list contains the clearance distances for each point
+        Vectorized collision detection between a hoop ring and multiple points for threading.
         """
         # Transform points to the local frame of the circle
         # The circle is defined in the xy-plane of the local frame
@@ -394,16 +304,6 @@ class Obstacle:
         """
         Vectorized version that calculates the minimum distance between a line segment (A-B) and multiple points.
         Returns arrays of collision results and distances for all points at once.
-
-        Args:
-            idx: Segment index
-            frame_A: Start frame of the segment
-            frame_B: End frame of the segment
-            points_P: Array of points to check, shape (N, 3)
-            radius: Collision radius
-
-        Returns:
-            tuple: (collision_array, distances_list) where collision_array is boolean array of shape (N,)
         """
         A = frame_A.translation
         B = frame_B.translation
@@ -411,11 +311,10 @@ class Obstacle:
 
         N = points_P.shape[0]
 
-        # Ground collision check (vectorized)
         segment_length = np.linalg.norm(v)
 
         if A[2] - radius < self.ground_limit or B[2] - radius < self.ground_limit:
-            if segment_length < 1e-9:  # Degenerate case: A ≈ B
+            if segment_length < 1e-9:  # A = B
                 min_z = min(A[2], B[2])
                 clearance = min_z - radius - self.ground_limit
                 if clearance <= 0.0:
@@ -436,45 +335,36 @@ class Obstacle:
                 if clearance <= 0.0:
                     return np.ones(N, dtype=bool), [0.0] * N
 
-        # Vector from A to all points (vectorized)
-        w = points_P - A  # Shape: (N, 3)
+        w = points_P - A 
 
-        # Projection calculations (vectorized)
         dot_vv = np.dot(v, v)
-        if dot_vv < 1e-9:  # Segment is effectively a point
+        if dot_vv < 1e-9:  # Segment is a point
             return np.zeros(N, dtype=bool), [0.2] * N
 
-        # t values for all points at once
         t_values = np.dot(w, v) / dot_vv  # Shape: (N,)
 
-        # Handle different segment rules
         if idx == 3:
             t_values = np.maximum(0, np.minimum(1, t_values))
-            valid_mask = np.ones(N, dtype=bool)  # All points are considered for segment 3
+            valid_mask = np.ones(N, dtype=bool) 
         else:
-            valid_mask = (t_values > 0.0) & (t_values < 1.0)
+            valid_mask = (t_values > 0.0) & (t_values < 1.0) # only consider barel with right angle ends
 
-        # Initialize results
         collisions = np.zeros(N, dtype=bool)
         distances = np.full(N, 0.4)  # Default distance for invalid projections
 
         if np.any(valid_mask):
-            # Calculate closest points for valid projections
             valid_indices = np.where(valid_mask)[0]
             t_valid = t_values[valid_mask]  # Shape: (num_valid,)
 
-            # Vectorized closest point calculation
             # closest_points shape: (num_valid, 3)
             closest_points = A + t_valid.reshape(-1, 1) * v
 
-            # Calculate distances for valid points
             valid_points = points_P[valid_mask]  # Shape: (num_valid, 3)
             point_distances = np.linalg.norm(valid_points - closest_points, axis=1)
 
             # Calculate clearances
             clearances = point_distances - radius
 
-            # Update results for valid points
             distances[valid_indices] = np.where(clearances >= 0.0, clearances, 0.0)
             collisions[valid_indices] = clearances <= 0.0
 
@@ -493,10 +383,6 @@ class Obstacle:
 
     def check_hoop_collision(self, q: np.ndarray, segment: tuple[float, float] = (0.0, 10.0)) -> bool:
         """Check if the robot hoop at configuration q collides with the obstacle.
-        Args:
-            q (np.ndarray): The joint configuration of the robot.
-        Returns:
-            bool: True if there is a collision, False otherwise.
         """
         if self.check_arm_colision(q)[0]:
             return True
